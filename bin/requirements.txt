@@ -1,0 +1,16 @@
+fastapi>=0.110
+uvicorn>=0.29
+openai>=1.30
+python-dotenv>=1.0
+pydantic>=2.6
+python-docx>=1.1
+openpyxl>=3.1
+pypdf>=4.0
+pandas>=2.2
+numpy>=1.26
+matplotlib>=3.8
+requests>=2.31
+pytesseract>=0.3.10
+xlrd>=2.0.1
+python-pptx>=1.0
+olefile>=0.47

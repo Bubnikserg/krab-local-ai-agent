@@ -1,0 +1,25 @@
+# Пользовательские данные
+bin/.env
+bin/logs/
+workspace/
+bin/.desktop_shortcut_done
+KRAB-update.zip
+KRAB-*-windows-x64.zip
+update.json
+КРАБ - Запуск.lnk
+КРАБ - Стоп.lnk
+docs/RELEASING.md
+
+# Большие компоненты: только в архиве релиза, не в репозитории
+bin/python/
+bin/Tesseract-OCR/
+docs/KRAB.png
+
+# Служебное
+chat_history.json
+project.json
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+desktop.ini

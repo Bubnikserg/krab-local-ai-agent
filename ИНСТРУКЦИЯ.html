@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ИНСТРУКЦИЯ — КРАБ</title>
+<style>
+  :root {
+    --bg: #f5f6fa; --card: #ffffff; --text: #1c2333; --muted: #6b7280;
+    --accent: #4f6df5; --accent-soft: rgba(79,109,245,.12); --border: #e3e6ef; --ok: #1a9e57;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161d; --card: #1d212b; --text: #e8eaf2; --muted: #98a0b3; --border: #2c3242; --accent: #7d93ff; --accent-soft: rgba(125,147,255,.14); --ok: #3ecf8e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14.5px; line-height: 1.6; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 26px 20px 60px; }
+  h1 { font-size: 26px; margin: 6px 0 2px; }
+  .sub { color: var(--muted); margin-bottom: 18px; }
+  .progress { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0 12px; }
+  .bar { height: 8px; border-radius: 6px; background: var(--border); overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--ok)); transition: width .4s; }
+  .ptext { font-size: 12.5px; color: var(--muted); margin-top: 5px; }
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; margin: 14px 0; box-shadow: 0 4px 18px rgba(0,0,0,.06); }
+  .step.done { border-color: var(--ok); }
+  .step h2 { display: flex; align-items: center; gap: 10px; font-size: 17px; margin: 0 0 10px; cursor: pointer; user-select: none; }
+  .num { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+         display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+  .step.done .num { background: var(--ok); color: #fff; }
+  .chk { margin-left: auto; flex: none; width: 20px; height: 20px; accent-color: var(--ok); cursor: pointer; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; font-size: 13px; background: var(--accent-soft); border-radius: 6px; padding: 1px 6px; }
+  .btn { display: inline-block; border: 1px solid var(--border); background: var(--card); color: var(--text);
+         border-radius: 9px; padding: 8px 14px; font-size: 13.5px; cursor: pointer; text-decoration: none; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { opacity: .9; color: #fff; }
+  .shot { margin: 12px 0; border: 1px dashed var(--border); border-radius: 10px; padding: 10px; background: var(--bg); }
+  .shot img { max-width: 100%; border-radius: 8px; display: block; }
+  .shot .hint { display: block; color: var(--muted); font-size: 12.5px; text-align: center; padding: 14px 6px; }
+  .shot.has { border-style: solid; }
+  .note { background: var(--accent-soft); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+  .warn { background: rgba(240,160,40,.14); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+  .schema { max-width: 100%; border-radius: 10px; border: 1px solid var(--border); background: var(--card); display: block; margin: 10px auto; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>&#9670; КРАБ — Компьютерный Рабочий Агент Без установки</h1>
+  <div class="sub">Портативная версия, без установки. Неофициальный клиент ИИ-роутера Selectel. Выполняйте шаги по порядку и отмечайте галочки — прогресс сохраняется.</div>
+
+  <div class="progress">
+    <div class="bar"><div id="bar-fill"></div></div>
+    <div class="ptext" id="bar-text">Выполнено 0 из 5 шагов</div>
+  </div>
+
+  <!-- ============ ШАГ 1 ============ -->
+  <div class="step" data-step="1">
+    <h2><span class="num">1</span> Разместить папку программы <input type="checkbox" class="chk"></h2>
+    <div>
+      <p>Распакуйте архив целиком в любую папку, куда у вас есть право записи, например <code>C:\KRAB</code>
+      или <code>D:\KRAB</code>. Права администратора не нужны. Не запускайте программу прямо из архива.</p>
+      <p>В папке программы вы увидите:</p>
+      <ul>
+        <li><b>Запуск.bat</b> — запуск программы (первый запуск; дальше удобнее ярлыками);</li>
+        <li><b>ИНСТРУКЦИЯ.html</b> — этот файл;</li>
+        <li><b>workspace</b> — рабочая папка. Каждая папка внутри неё — это <b>проект</b> (свои документы, переписка, результаты).
+        Файлы прямо в корне <code>workspace</code> — это <b>черновик</b>, он очищается при закрытии программы (см. «Полезно знать»);</li>
+        <li><b>bin</b> — служебные файлы программы (Python, библиотеки, Tesseract OCR, настройки, журналы). Менять там ничего не нужно.</li>
+      </ul>
+      <div class="note">Всё необходимое уже лежит внутри — установка не требуется, интернет нужен только для работы с моделями.
+      Единственная подготовка — первый запуск (около минуты): программа сама подготовит папку к работе.</div>
+    </div>
+  </div>
+
+  <!-- ============ ШАГ 2 ============ -->
+  <div class="step" data-step="2">
+    <h2><span class="num">2</span> Запустить программу <input type="checkbox" class="chk"></h2>
+    <div>
+      <p>Дважды щёлкните файл <b>Запуск.bat</b> в папке программы — откроется окно программы в браузере.</p>
+      <p><b>Первый запуск занимает около минуты:</b> программа подготовит папку к работе — снимет с файлов
+      пометку «загружено из интернета» (после этого Windows не задаёт вопросов о запуске) и создаст ярлыки.
+      Это разовая подготовка, дальше запуск мгновенный.</p>
+      <p>Программа сама создаст ярлыки <b>«КРАБ - Запуск»</b> и <b>«КРАБ - Стоп»</b> в папке программы,
+      ярлык <b>«КРАБ»</b> на рабочем столе (со значком краба) и файл
+      настроек <code>bin\.env</code>, когда вы сохраните ключ (шаг 5). Дальше запускайте программу любым из способов —
+      ярлыками «КРАБ - Запуск» и «КРАБ» на рабочем столе, или файлом Запуск.bat.</p>
+      <p>Повторный запуск, когда программа уже работает, просто открывает её окно заново.</p>
+      <p><b>Остановка:</b> просто закройте окно программы крестиком — когда закрыто последнее окно, КРАБ останавливается сам
+      (через несколько секунд). Ярлык <b>«КРАБ - Стоп»</b> делает то же принудительно: завершает все процессы программы,
+      после чего папку можно переименовать, перенести или удалить.</p>
+      <div class="note">Ярлыки и Запуск.bat работают из любого места — папку можно переносить и переименовывать.
+      Пути в ярлыках после переноса исправятся сами при первом запуске.</div>
+      <div class="warn">Если Windows или антивирус предупреждает о запуске скрипта — это штатные скрипты запуска программы
+      (<code>Запуск.bat</code>, <code>bin\run_hidden.vbs</code>, <code>bin\open_ui.ps1</code>), их можно разрешить.</div>
+      <div class="note"><b>Если окно не открылось:</b> запустите <code>bin\run.bat</code> — программа стартует
+      с видимой консолью, в ней будет видна причина ошибки. Подробный журнал — <code>bin\logs\agent.log</code>.</div>
+    </div>
+  </div>
+
+  <!-- ============ ШАГ 3 ============ -->
+  <div class="step" data-step="3">
+    <h2><span class="num">3</span> Зарегистрироваться в Selectel <input type="checkbox" class="chk"></h2>
+    <div>
+      <p>Зарегистрируйтесь по ссылке: <a href="https://selectel.ru/?ref_code=1590b2d62c" target="_blank" rel="noopener">SELECTEL.RU</a>
+      <button class="btn" style="margin-left:6px; padding:2px 10px; font-size:12px;" onclick="navigator.clipboard.writeText('https://selectel.ru/?ref_code=1590b2d62c').then(()=>this.textContent='Скопировано')">Копировать ссылку</button></p>
+      <p style="color:var(--muted); font-size:13px;">Это партнёрская ссылка: если вы зарегистрируетесь по ней, автор КРАБа получит
+      вознаграждение от Selectel. Так вы поддержите развитие программы.</p>
+      <p>В личном кабинете выберите: <b>Продукт → ИИ-роутер → Создать</b>.</p>
+      <div class="note"><b>Важно:</b> создать ИИ-роутер можно только после минимального пополнения баланса —
+      <b>200 рублей</b>. Если баланс ещё пустой, сначала пополните его (следующий шаг), затем вернитесь и создайте роутер.</div>
+      <p>Дальше <b>сгенерируйте API-ключ</b>. Сгенерированный ключ обязательно
+      <b>куда-нибудь прибрать и сохранить</b> — полностью он показывается только один раз!</p>
+    </div>
+  </div>
+
+  <!-- ============ ШАГ 4 ============ -->
+  <div class="step" data-step="4">
+    <h2><span class="num">4</span> Пополнить баланс <input type="checkbox" class="chk"></h2>
+    <div>
+      <p>Пополнить баланс можно на странице <b>Биллинг</b> личного кабинета.
+      Для знакомства с программой хватит <b>200–300 рублей</b> (минимальное пополнение — <b>200 рублей</b>).</p>
+      <div class="note">Стоимость зависит от модели: например, дешёвые DeepSeek 4.1 Flash или GLM 5.3 Flash
+      обходятся в копейки за запрос, а флагманские модели заметно дороже — всегда смотрите «Описание модели».</div>
+    </div>
+  </div>
+
+  <!-- ============ ШАГ 5 ============ -->
+  <div class="step" data-step="5">
+    <h2><span class="num">5</span> Ввести ключ в программе <input type="checkbox" class="chk"></h2>
+    <div>
+      <p>В окне программы откройте настройки —
+      <b>шестерёнка справа вверху</b> — введите сохранённый <b>API-ключ</b> и нажмите
+      <b>«Сохранить и перезапустить»</b>.</p>
+
+      <svg class="schema" width="560" height="150" viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="560" height="150" fill="none"/>
+        <rect x="440" y="10" width="110" height="26" rx="7" fill="rgba(127,127,127,.15)"/>
+        <text x="527" y="28" text-anchor="end" font-size="12" fill="gray">&#9881; шестерёнка справа вверху &#8593;</text>
+        <circle cx="452" cy="23" r="8" fill="none" stroke="#f0a028" stroke-width="3"/>
+        <text x="30" y="60" font-size="14" fill="currentColor">1. Шестерёнка — «Настройки подключения»</text>
+        <text x="30" y="84" font-size="14" fill="currentColor">2. Поле «API-ключ Selectel» — вставьте ключ</text>
+        <text x="30" y="108" font-size="14" fill="currentColor">3. Кнопка «Сохранить и перезапустить»</text>
+        <text x="30" y="132" font-size="13" fill="gray">Ключ и пароли шифруются (DPAPI вашего пользователя Windows)</text>
+      </svg>
+
+      <p><b>Если на предприятии используется прокси-сервер:</b> включите галочку «Использовать прокси-сервер»,
+      введите адрес, логин и пароль.</p>
+
+      <div class="note">
+        <b>Как узнать адрес прокси:</b> откройте командную строку (Win+R → <code>cmd</code> → Enter) и выполните:
+        <div class="mono" style="margin:6px 0 2px;">reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" | findstr Proxy</div>
+        В строке <code>ProxyServer</code> будет адрес вашего прокси-сервера — вставьте его в поле
+        «Адрес прокси-сервера» в программе. Если там <code>127.0.0.1</code> (или строки ProxyServer нет) —
+        прокси нет, оставьте галочку «Использовать прокси-сервер» выключенной.
+      </div>
+
+      <p><b>Про SSL:</b> некоторые прокси работают с перехватом SSL-трафика. Если без проверки сертификата
+      модели не загрузились в программу — включите галочку <b>«Проверка SSL»</b>; если и так не работает —
+      попробуйте с выключенной. Настройка сохраняется в файл <code>bin\.env</code> (параметр <code>SSL_VERIFY</code>).</p>
+
+      <svg class="schema" width="560" height="196" viewBox="0 0 560 196" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="560" height="196" rx="10" fill="rgba(127,127,127,.10)"/>
+        <text x="16" y="28" font-size="14" font-weight="bold" fill="currentColor">Настройки подключения</text>
+        <text x="16" y="56" font-size="12" fill="gray">API-ключ Selectel</text>
+        <rect x="16" y="62" width="300" height="24" rx="6" fill="rgba(127,127,127,.15)"/>
+        <text x="24" y="78" font-size="11" fill="gray">••••••••••••• (ваш ключ)</text>
+        <rect x="16" y="96" width="14" height="14" rx="3" fill="none" stroke="gray"/>
+        <text x="36" y="107" font-size="12" fill="currentColor">Использовать прокси-сервер &#8594; адрес, логин, пароль</text>
+        <rect x="16" y="126" width="14" height="14" rx="3" fill="#4f6df5"/>
+        <path d="M19 132 l4 4 l7 -8" stroke="#fff" stroke-width="2" fill="none"/>
+        <text x="36" y="137" font-size="12" fill="currentColor">Проверка SSL-сертификата (снимите для перехватывающего прокси)</text>
+        <rect x="16" y="158" width="180" height="26" rx="8" fill="#4f6df5"/>
+        <text x="106" y="175" font-size="12" text-anchor="middle" fill="#fff">Сохранить и перезапустить</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ============ ЕСЛИ НЕ ЗАПУСКАЕТСЯ ============ -->
+  <div class="step" style="border-style:dashed;">
+    <h2 style="cursor:default;"><span class="num">!</span> Если программа не запускается</h2>
+    <div>
+      <p>Ошибки при старте видны, если запустить <b>bin\run.bat</b> — он показывает журнал прямо в окне.</p>
+      <p><b>ImportError: cannot import name 'sentinel' from 'typing_extensions'</b> (путь вида
+      <code>...\AppData\Roaming\Python\...\site-packages\typing_extensions.py</code>).
+      Причина: в личной папке пользователя лежит устаревшая библиотека Python, которая затеняет библиотеку из комплекта.
+      Исправление уже встроено в программу (запуск изолирован от чужих пакетов) — обновите КРАБ до актуальной версии.
+      Как временное решение можно удалить или переименовать папку
+      <code>%APPDATA%\Python\Python313\site-packages</code> (это личные пакеты Python пользователя, программе они не нужны).</p>
+      <p>Другие ошибки — пришлите текст из окна <b>bin\run.bat</b> или файл <b>bin\logs\agent.log</b> тому, кто вам программу передал.</p>
+    </div>
+  </div>
+
+  <!-- ============ СПРАВКА ============ -->
+  <div class="step" style="border-style:dashed;">
+    <h2 style="cursor:default;"><span class="num">i</span> Полезно знать</h2>
+    <div>
+      <p><b>Что умеет агент.</b> Читает Word, Excel, PDF, PowerPoint, письма .eml/.msg и текстовые файлы; распознаёт текст на
+      картинках и сканах PDF (русский и английский); в режиме «Полная автономность» создаёт Word, Excel, PowerPoint и запускает Python.
+      Файлы можно прикреплять кнопкой со скрепкой, перетаскивать в окно программы или класть в папку проекта
+      (кнопка открытия папки есть у каждого проекта).
+      Скриншоты вставляются через Ctrl+V — модели с поддержкой изображений видят их напрямую.</p>
+      <p><b>Черновик и проекты.</b> Чат без проекта — это черновик: прикреплённые к нему файлы лежат прямо в корне
+      <code>workspace</code>. Если работа понадобится позже, сохраните черновик в проект — переписка и все файлы черновика
+      перейдут в папку проекта. При закрытии программы (крестиком или ярлыком «КРАБ - Стоп») черновик очищается: переписка не сохраняется, а файлы из корня
+      <code>workspace</code> переносятся в корзину <code>workspace\.trash</code> и через 7 дней удаляются окончательно;
+      перед закрытием программа об этом спросит. Папки проектов при очистке не затрагиваются.
+      <b>Не храните свои документы прямо в корне <code>workspace</code></b> — кладите их в папку проекта.</p>
+      <p><b>Доступ в интернет</b> — отдельная галочка в блоке «Режим прав». С ней агент может открыть веб-страницу по точному адресу
+      (поиска по интернету нет). При работе с конфиденциальными документами держите её выключенной.</p>
+      <p><b>Расходы.</b> Кнопка «Расходы» показывает траты за день и месяц. В настройках (шестерёнка) можно задать дневной лимит в рублях:
+      после его исчерпания новые запросы в этот день не отправляются. Рядом с названием модели показывается, насколько заполнен её контекст.</p>
+      <p><b>Режимы прав.</b> «Только чтение» — агент читает и анализирует файлы из <code>workspace</code>.
+      «Полная автономность» — агент создаёт документы и <b>выполняет Python-код от вашего имени</b>; это не «песочница»,
+      включайте режим для задач и документов, которым доверяете.</p>
+      <p><b>Доступ из сети.</b> Программа открывается только на этом компьютере (<code>127.0.0.1</code>), пароля у неё нет.
+      Не указывайте <code>HOST=0.0.0.0</code> в <code>bin\.env</code>, если не понимаете последствий: любой в вашей сети
+      сможет читать файлы рабочей папки и выполнять код на вашем компьютере.</p>
+      <p><b>Документы из непроверенных источников.</b> В тексте документа могут быть спрятаны указания для модели.
+      В режиме «Только чтение» это безопасно; в «Полной автономности» давайте агенту только те документы, которым доверяете.</p>
+      <p><b>Сжатие проекта</b> ничего не удаляет безвозвратно: картинки и старые версии файлов переносятся в подпапку
+      <code>.trash</code> проекта. Когда убедитесь, что они не нужны, удалите её вручную.</p>
+      <p><b>Перенос на другой компьютер или диск.</b> Скопируйте папку целиком — ярлыки и Запуск.bat работают из любого места.
+      Ключ API и пароль прокси зашифрованы под вашего пользователя Windows, поэтому на другом компьютере
+      их нужно ввести в настройках заново.</p>
+      <p><b>Обновление со старой версии</b> (где все файлы лежали в одной папке). Распакуйте новую версию в чистую папку
+      и перенесите из старой папку <code>workspace</code>, файл <code>.env</code> и папку <code>logs</code> в корень новой —
+      при первом запуске <code>.env</code> и <code>logs</code> сами переедут в <code>bin</code>.</p>
+      <p><b>Порт занят.</b> По умолчанию КРАБ занимает порт 38573. Если его использует другая программа, создайте файл <code>bin\.env</code>
+      (образец — <code>bin\.env.example</code>) со строкой <code>PORT=38574</code>.</p>
+      <p><b>Удаление.</b> Остановите программу и удалите папку и ярлык «КРАБ» с рабочего стола. В системе больше ничего не остаётся.</p>
+    </div>
+  </div>
+
+  <p style="text-align:center; color:var(--muted); font-size:12.5px; margin-top:26px;">
+    КРАБ · инструкция лежит в папке программы (ИНСТРУКЦИЯ.html)
+  </p>
+</div>
+
+<script>
+"use strict";
+const TOTAL = document.querySelectorAll(".step[data-step]").length;
+document.querySelectorAll(".step[data-step]").forEach(step => {
+  const key = "install-step-" + step.dataset.step;
+  const chk = step.querySelector(".chk");
+  chk.checked = localStorage.getItem(key) === "1";
+  step.classList.toggle("done", chk.checked);
+  step.querySelector("h2").onclick = (e) => {
+    if (e.target === chk) return;
+    chk.checked = !chk.checked;
+    chk.dispatchEvent(new Event("change"));
+  };
+  chk.onchange = () => {
+    localStorage.setItem(key, chk.checked ? "1" : "0");
+    step.classList.toggle("done", chk.checked);
+    refresh();
+  };
+});
+function refresh() {
+  const done = document.querySelectorAll(".step.done").length;
+  document.getElementById("bar-fill").style.width = (done / TOTAL * 100) + "%";
+  document.getElementById("bar-text").textContent = "Выполнено " + done + " из " + TOTAL + " шагов" + (done === TOTAL ? " — всё готово, можно работать!" : "");
+}
+refresh();
+</script>
+</body>
+</html>

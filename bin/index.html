@@ -1,0 +1,2483 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>КРАБ</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+:root {
+  --bg: #faf9f5; --side: #f0eee6; --card: #ffffff; --bubble: #ece5d8;
+  --text: #1f1e1d; --muted: #6e6b64; --accent: #c96442; --accent-soft: #f2e3dc;
+  --border: #e3ded2; --code-bg: #f4f1e8; --code-head: #ebe7db;
+  --danger: #b3453a; --ok: #4a7c59; --shadow: 0 1px 3px rgba(0,0,0,.07);
+}
+[data-theme="dark"] {
+  --bg: #262624; --side: #1e1d1b; --card: #31302d; --bubble: #3a3833;
+  --text: #f2efe9; --muted: #a8a399; --accent: #d97757; --accent-soft: #4a3a33;
+  --border: #3d3b37; --code-bg: #1b1a18; --code-head: #2a2926;
+  --danger: #e07b6f; --ok: #7fb98a; --shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 15px;
+}
+#app { display: flex; height: 100vh; }
+
+/* ---------- Сайдбар ---------- */
+#sidebar {
+  width: 290px; min-width: 290px; background: var(--side);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  padding: 14px; gap: 14px; overflow-y: auto;
+}
+.brand { font-weight: 700; font-size: 17px; letter-spacing: .2px; padding: 4px 2px; }
+.brand span { color: var(--accent); }
+.panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); }
+.panel h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 600; }
+.panel.collapsible > h3 { cursor: pointer; user-select: none; }
+.panel.collapsible > h3::before { content: "\25BE "; color: var(--accent); }
+.panel.collapsible.collapsed > h3::before { content: "\25B8 "; }
+.panel.collapsible.collapsed > .panel-body { display: none; }
+.proj-item { padding: 5px 8px 5px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; border: 1px solid transparent; display: flex; align-items: center; gap: 4px; }
+.proj-item:hover { background: var(--bg); border-color: var(--border); }
+.proj-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.proj-item.working {
+  background: linear-gradient(90deg, var(--accent-soft), transparent 45%, var(--accent-soft));
+  background-size: 200% 100%; animation: shimmer 1.8s linear infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.proj-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; min-width: 0; }
+.proj-ico { border: none; background: transparent; cursor: pointer; font-size: 13px; padding: 1px 3px; color: var(--muted); flex: none; line-height: 1; }
+.proj-ico:hover { color: var(--accent); transform: scale(1.2); }
+.proj-working { font-size: 11.5px; color: var(--accent); display: inline-flex; align-items: center; gap: 4px; flex: none; animation: pulse-soft 1.4s ease-in-out infinite; }
+@keyframes pulse-soft { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+.proj-working .brain { display: inline-block; font-style: normal; animation: brain-spin 1.4s linear infinite; }
+.proj-alert { flex: none; font-size: 12px; animation: popin .35s ease; cursor: pointer; }
+@keyframes popin { from { transform: scale(0); } to { transform: scale(1); } }
+#projects-list { display: flex; flex-direction: column; gap: 2px; }
+#model-info-link { display: block; margin-top: 8px; font-size: 12.5px; color: var(--accent); text-decoration: none; cursor: pointer; }
+.model-desc {
+  font-size: 13px; line-height: 1.55; white-space: pre-line; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 10px;
+}
+.model-desc-src { font-size: 11px; color: var(--muted); margin: -4px 0 10px; }
+label.fld { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+input[type=text], input[list], select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); font-size: 13px; outline: none;
+}
+input[type=text]:focus, input[list]:focus, select:focus { border-color: var(--accent); }
+/* --- выпадающий список моделей с закреплением --- */
+.model-dd { position: relative; }
+.model-dd-btn {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer; text-align: left;
+  font-family: inherit;
+}
+.model-dd-btn:hover { border-color: var(--accent); }
+.model-dd-arrow { color: var(--muted); flex: none; }
+.model-dd-list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.2); max-height: 400px; overflow-y: auto; padding: 4px;
+}
+.model-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px;
+  border-radius: 8px; cursor: pointer; font-size: 13px; line-height: 1.3; min-width: 0;
+}
+.model-row:hover { background: var(--bg); }
+.model-row.selected { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.model-row-txt { flex: 1; min-width: 0; overflow: hidden; }
+.model-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-row-id { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-row.selected .model-row-id { color: var(--accent); }
+.model-star {
+  border: none; background: transparent; cursor: pointer; font-size: 16px; line-height: 1;
+  color: var(--muted); padding: 4px 4px; flex: none; opacity: .5;
+}
+.model-star:hover { opacity: 1; transform: scale(1.2); }
+.model-star.pinned { color: #e2a33d; opacity: 1; }
+.temp-row { display: flex; align-items: center; gap: 10px; }
+input[type=range] { flex: 1; accent-color: var(--accent); }
+#temp-val { font-size: 13px; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+#modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+#modal {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 14px; width: 100%; max-width: 520px; max-height: 82vh;
+  display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+#modal-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
+}
+#modal-head button { border: none; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+#modal-head button:hover { color: var(--accent); }
+#modal-body { padding: 14px 16px; overflow-y: auto; font-size: 13px; line-height: 1.6; }
+#modal-body table { width: 100%; border-collapse: collapse; }
+#modal-body td { padding: 4px 6px 4px 0; vertical-align: top; }
+#modal-body td.k { color: var(--muted); white-space: nowrap; padding-right: 14px; }
+#modal-body .cap { display: inline-block; border: 1px solid var(--border); border-radius: 12px; padding: 0 8px; font-size: 11px; margin: 2px 4px 2px 0; background: var(--side); }
+#proj-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 110;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+#proj-modal {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 14px; width: 100%; max-width: 440px; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+#proj-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
+}
+#proj-head button { border: none; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+#proj-body { padding: 14px 16px; }
+#desc-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 110;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+#desc-modal {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 14px; width: 100%; max-width: 460px; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+#desc-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
+}
+#desc-head button { border: none; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+#desc-body { padding: 14px 16px; }
+.desc-help {
+  font-size: 12px; color: var(--muted); line-height: 1.55; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; margin-top: 10px;
+}
+#settings-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 120;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+#settings-modal {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 14px; width: 100%; max-width: 480px; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+#settings-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
+}
+#settings-head button { border: none; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+#settings-body { padding: 14px 16px; }
+#settings-body input { margin-bottom: 2px; }
+.ok-badge { color: var(--ok); font-weight: 700; font-size: 11px; vertical-align: middle; }
+#update-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 130;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+#update-modal {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 14px; width: 100%; max-width: 500px; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+#update-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
+}
+#update-head button { border: none; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+#update-head button:hover { color: var(--accent); }
+#update-body { padding: 14px 16px; font-size: 13.5px; line-height: 1.55; }
+#update-status { margin-top: 10px; color: var(--muted); font-size: 12.5px; min-height: 18px; }
+#update-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+#spend-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 120;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+#spend-modal {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 14px; width: 100%; max-width: 760px; max-height: 88vh;
+  display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+#spend-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px;
+}
+#spend-head button { border: none; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+#spend-head button:hover { color: var(--accent); }
+#spend-body { padding: 14px 16px; overflow-y: auto; font-size: 13px; }
+#spend-body h4 { margin: 2px 0 8px; }
+#spend-body .spend-sec { margin-bottom: 18px; }
+table.spend { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.spend th { background: var(--side); padding: 6px 8px; text-align: left; cursor: pointer; user-select: none; border: 1px solid var(--border); white-space: nowrap; }
+table.spend th:hover { color: var(--accent); }
+table.spend td { border: 1px solid var(--border); padding: 5px 8px; }
+table.spend td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.spend tr.sumrow td { font-weight: 700; background: var(--side); }
+.save-txt { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--accent); cursor: pointer; font-size: 11px; padding: 1px 8px; flex: none; line-height: 1.4; }
+.save-txt:hover { border-color: var(--accent); filter: brightness(1.05); }
+.mode-opt { display: flex; align-items: flex-start; gap: 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.mode-opt:hover { background: var(--bg); }
+.mode-opt input { margin-top: 3px; accent-color: var(--accent); }
+.mode-opt input:disabled + span { opacity: .45; }
+.mode-opt .t { font-size: 13px; font-weight: 600; }
+.mode-opt .d { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+#tools-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+#tools-list li { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
+#tools-list li .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+#tools-list li.off { color: var(--muted); text-decoration: line-through; }
+#tools-list li.off .dot { background: var(--border); }
+.btn {
+  border: 1px solid var(--border); background: var(--card); color: var(--text);
+  border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer; width: 100%;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.07); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+.side-footer { margin-top: auto; display: flex; gap: 8px; }
+#status { font-size: 12px; color: var(--muted); padding: 2px; }
+
+/* ---------- Основная область ---------- */
+main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 22px; border-bottom: 1px solid var(--border); background: var(--bg);
+}
+#current-model { font-size: 13px; color: var(--muted); }
+#current-model b { color: var(--text); }
+.top-actions { display: flex; gap: 8px; }
+.top-actions .btn { width: auto; padding: 6px 12px; }
+#chat-wrap { flex: 1; display: flex; min-height: 0; position: relative; }
+#chat { flex: 1; overflow-y: auto; padding: 26px 0 10px; }
+/* --- метки запросов на полосе прокрутки --- */
+#msg-marks {
+  position: absolute; top: 8px; bottom: 8px; right: 1px; width: 12px;
+  pointer-events: none; z-index: 5;
+}
+#msg-marks .mark {
+  position: absolute; right: 2px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); opacity: .35; pointer-events: auto; cursor: pointer;
+  border: none; padding: 0; transition: opacity .15s, transform .15s;
+}
+#msg-marks .mark:hover { opacity: 1; transform: scale(1.4); }
+.msg-user.flash { box-shadow: 0 0 0 2px var(--accent); }
+.turn { max-width: 860px; margin: 0 auto; padding: 0 22px 26px; }
+.msg-user {
+  background: var(--bubble); border: 1px solid var(--border); border-radius: 14px;
+  padding: 12px 16px; margin-left: 80px; white-space: pre-wrap; line-height: 1.55;
+}
+.msg-agent { margin-top: 16px; line-height: 1.62; }
+.thinking { color: var(--muted); font-size: 13.5px; font-style: italic; }
+.thinking .brain { display: inline-block; font-style: normal; animation: brain-spin 1.4s linear infinite; }
+@keyframes brain-spin { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(180deg) scale(1.15); } 100% { transform: rotate(360deg) scale(1); } }
+.raw-stream { white-space: pre-wrap; }
+.turn-footer { margin-top: 10px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; align-items: center; }
+.cost-badge { background: var(--accent-soft); color: var(--accent); border-radius: 20px; padding: 2px 10px; font-variant-numeric: tabular-nums; }
+.notice { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 8px 12px; border-radius: 6px; font-size: 13px; margin: 8px 0; }
+.error-box { border-left: 3px solid var(--danger); background: var(--card); padding: 10px 12px; border-radius: 6px; font-size: 13.5px; margin: 8px 0; color: var(--danger); white-space: pre-wrap; }
+
+/* ---------- Markdown ---------- */
+.msg-agent h1, .msg-agent h2, .msg-agent h3, .msg-agent h4 { margin: 18px 0 8px; line-height: 1.3; }
+.msg-agent h1 { font-size: 1.5em; } .msg-agent h2 { font-size: 1.3em; } .msg-agent h3 { font-size: 1.15em; }
+.msg-agent p { margin: 8px 0; }
+.msg-agent ul, .msg-agent ol { margin: 8px 0; padding-left: 26px; }
+.msg-agent li { margin: 3px 0; }
+.msg-agent blockquote { border-left: 3px solid var(--accent); margin: 10px 0; padding: 4px 14px; color: var(--muted); }
+.msg-agent table { border-collapse: collapse; margin: 12px 0; width: 100%; font-size: 13.5px; display: block; overflow-x: auto; }
+.msg-agent th, .msg-agent td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.msg-agent th { background: var(--side); font-weight: 600; }
+.msg-agent code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-family: Consolas, "Cascadia Mono", monospace; font-size: .9em; }
+.codeblock { margin: 12px 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--code-bg); }
+.codehead { display: flex; justify-content: space-between; align-items: center; padding: 5px 12px; background: var(--code-head); font-size: 12px; color: var(--muted); }
+.codehead button { border: none; background: transparent; color: var(--accent); cursor: pointer; font-size: 12px; padding: 2px 6px; }
+.codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; }
+.codeblock pre code { background: none; border: none; padding: 0; font-size: 13px; line-height: 1.5; }
+
+/* ---------- Шаги агента ---------- */
+details.step {
+  border: 1px solid var(--border); border-radius: 10px; margin: 10px 0;
+  background: var(--card); font-size: 13px;
+}
+details.step > summary {
+  cursor: pointer; padding: 8px 12px; color: var(--muted); user-select: none;
+  font-family: Consolas, monospace; font-size: 12.5px; list-style: none;
+}
+details.step > summary::before { content: "▸ "; color: var(--accent); }
+details.step[open] > summary::before { content: "▾ "; }
+details.step .sbody { padding: 0 12px 10px; }
+details.step pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; overflow-x: auto; font-size: 12px; max-height: 340px; overflow-y: auto; margin: 6px 0; }
+.step-tag { color: var(--accent); font-weight: 600; }
+.step-pending { color: var(--muted); font-style: italic; }
+/* --- подтверждение выполнения кода --- */
+.code-confirm { margin: 8px 0; }
+.confirm-ask { font-size: 13px; font-weight: 600; margin: 4px 0; }
+.confirm-ask.warn { color: var(--danger); }
+.confirm-reasons { margin: 4px 0 6px; padding-left: 20px; font-size: 12.5px; color: var(--danger); }
+.confirm-code {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; overflow-x: auto; overflow-y: auto; font-size: 12px; line-height: 1.5;
+  max-height: 340px; margin: 6px 0; white-space: pre;
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+.suspect-line {
+  background: rgba(226,86,66,.3); border-radius: 3px;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+.confirm-actions { display: flex; gap: 8px; margin: 8px 0 4px; }
+.confirm-actions .btn { width: auto; padding: 6px 14px; }
+.confirm-status { font-size: 12.5px; }
+.confirm-status.ok { color: var(--ok); }
+.confirm-status.deny { color: var(--danger); }
+
+/* ---------- Композер ---------- */
+#composer { border-top: 1px solid var(--border); padding: 14px 22px 18px; background: var(--bg); }
+.composer-inner { max-width: 860px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
+#input {
+  flex: 1; resize: none; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--card); color: var(--text); padding: 11px 14px; font-size: 14.5px;
+  font-family: inherit; outline: none; height: 96px; max-height: 260px; line-height: 1.5;
+}
+#input:focus { border-color: var(--accent); }
+#btn-send { width: auto; padding: 11px 20px; height: 46px; }
+.empty-hint { max-width: 860px; margin: 8vh auto 0; text-align: center; color: var(--muted); padding: 0 22px; }
+.empty-hint h1 { font-size: 26px; color: var(--text); font-weight: 600; }
+.empty-hint .examples { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 22px; }
+.empty-hint .ex { border: 1px solid var(--border); background: var(--card); border-radius: 10px; padding: 10px 14px; font-size: 13px; cursor: pointer; }
+.empty-hint .ex:hover { border-color: var(--accent); color: var(--accent); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand"><span>&#9670;</span> КРАБ</div>
+
+    <div class="panel">
+      <h3>Модель</h3>
+      <div id="model-dd" class="model-dd">
+        <button type="button" id="model-dd-btn" class="model-dd-btn">
+          <span id="model-dd-label">—</span><span class="model-dd-arrow">&#9662;</span>
+        </button>
+        <div id="model-dd-list" class="model-dd-list" style="display:none"></div>
+      </div>
+      <a href="#" id="model-info-link" style="display:none">Описание модели</a>
+      <input type="text" id="model-custom" placeholder="ID модели вручную" spellcheck="false"
+             style="display:none; margin-top:8px;">
+      <label class="fld">Температура (Воображение)</label>
+      <div class="temp-row">
+        <input type="range" id="temp" min="0" max="1" step="0.05" value="0.4">
+        <span id="temp-val">0.4</span>
+      </div>
+    </div>
+
+    <div class="panel collapsible" id="panel-mode">
+      <h3>Режим прав</h3>
+      <div class="panel-body">
+        <label class="mode-opt">
+          <input type="radio" name="mode" value="readonly" checked>
+          <span><span class="t">Только чтение</span><br><span class="d">Агент может просматривать и анализировать файлы, но не изменять их</span></span>
+        </label>
+        <label class="mode-opt">
+          <input type="radio" name="mode" value="full">
+          <span><span class="t">Полная автономность</span><br><span class="d">Агент может создавать документы Word/Excel, файлы и выполнять код. Код выполняется на этом компьютере от вашего имени, без «песочницы» — включайте для задач и документов, которым доверяете</span></span>
+        </label>
+        <label class="mode-opt" style="margin-top:6px;">
+          <input type="checkbox" id="web-access">
+          <span><span class="t">Доступ в интернет</span><br><span class="d">Агент может открывать веб-страницы по адресу. Не включайте при работе с конфиденциальными документами: адрес запроса виден сайту</span></span>
+        </label>
+        <label class="mode-opt" style="margin-top:6px;">
+          <input type="checkbox" id="auto-code">
+          <span><span class="t">Выполнять код автоматически</span><br><span class="d">Работает в режиме «Полная автономность». Если включено — модель выполняет код сама. Если выключено — каждый запуск кода нужно подтвердить кнопкой «Выполнить»</span></span>
+        </label>
+        <label class="mode-opt" style="margin-top:6px;">
+          <input type="checkbox" id="restrict-outside">
+          <span><span class="t">Запретить активность вне папки проекта</span><br><span class="d">Код перед выполнением проверяется на выход за пределы папки проекта: подозрительные строки подсвечиваются цветом, и выполнение спрашивается у вас — даже при включённом авто-выполнении. Другие инструменты (чтение, файлы, документы) и так ограничены рабочей папкой</span></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="panel collapsible" id="panel-tools">
+      <h3>Инструменты</h3>
+      <div class="panel-body">
+        <ul id="tools-list"></ul>
+      </div>
+    </div>
+
+    <div class="panel collapsible" id="panel-projects">
+      <h3>Проекты</h3>
+      <div class="panel-body">
+        <div id="projects-list"></div>
+      </div>
+    </div>
+
+    <div class="side-footer">
+      <button class="btn" id="btn-theme">Светлая тема</button>
+      <button class="btn primary" id="btn-new">Новый чат</button>
+    </div>
+    <div id="status"></div>
+    <div id="ver-line" style="font-size:11.5px; color:var(--muted); padding:2px;"></div>
+  </aside>
+
+  <main>
+    <header id="topbar">
+      <div id="current-model"><span id="proj-status"></span>Модель: <b id="model-name-label">—</b><span id="ctx-ind" style="margin-left:14px; font-size:12px; color:var(--muted);"></span></div>
+      <div class="top-actions">
+        <button class="btn" id="btn-export" title="Сохранить текущий чат в файл Markdown">Экспорт чата</button>
+        <button class="btn" id="btn-spend">Расходы</button>
+        <button class="btn" id="btn-refresh-models">Обновить модели</button>
+        <button class="btn" id="btn-update-desc" title="Скачать свежие описания всех моделей из каталога Selectel (нужен токен из панели)">Обновить описания моделей</button>
+        <button class="btn" id="btn-settings" title="Настройки подключения">&#9881;</button>
+      </div>
+    </header>
+    <div id="lan-warning" style="display:none; background:rgba(220,60,60,.14); border-bottom:1px solid var(--danger); color:var(--text); font-size:12.5px; padding:7px 22px;"></div>
+    <div id="chat-wrap">
+      <div id="chat"></div>
+      <div id="msg-marks" title=""></div>
+    </div>
+    <div id="composer">
+      <div class="composer-inner">
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn" id="btn-attach" style="width:44px; padding:8px 0; font-size:16px;" title="Прикрепить файлы: они копируются в рабочую папку проекта. Файлы можно также перетащить в окно">&#128206;</button>
+          <button class="btn" id="btn-mic" style="width:44px; padding:8px 0; font-size:16px; display:none;" title="Голосовой ввод (если доступно в вашем браузере)">&#127908;</button>
+        </div>
+        <input type="file" id="file-input" multiple style="display:none">
+        <textarea id="input" rows="3" placeholder="Введите сообщение... (Enter — отправить, Shift+Enter — новая строка, Ctrl+V — вставка скриншота)"></textarea>
+        <button class="btn primary" id="btn-send">Отправить</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="modal-overlay" style="display:none">
+  <div id="modal">
+    <div id="modal-head"><span>Описание модели</span><button id="modal-close" title="Закрыть">&times;</button></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="desc-overlay" style="display:none">
+  <div id="desc-modal">
+    <div id="desc-head"><span>Обновить описания моделей</span><button id="desc-cancel" title="Закрыть">&times;</button></div>
+    <div id="desc-body">
+      <div style="font-size:12.5px; color:var(--muted); margin-bottom:8px;">
+        Скачает свежие описания всех моделей из каталога Selectel и обновит локальный файл
+        <code>model_descriptions.json</code> (показывается в окне «Описание модели»).
+        Токен используется только для этого запроса и не сохраняется.
+      </div>
+      <label class="fld">Токен x-auth-token</label>
+      <input type="text" id="desc-token" placeholder="gAAAAA..." spellcheck="false" autocomplete="off">
+      <div class="desc-help">
+        <b>Как получить токен:</b> авторизуйтесь на my.selectel.ru → откройте настройки созданного
+        ИИ-роутера → вкладка <b>Модели</b> → нажмите <b>F12</b> → вкладка <b>Network</b> → фильтр
+        <b>Fetch/XHR</b> → нажмите <b>F5</b> → в списке найдите строку <code>models?...</code> →
+        выделите её → справа в <b>Request Headers</b> найдите <code>x-auth-token</code> и скопируйте
+        значение целиком.
+      </div>
+      <div id="desc-error" style="font-size:12px; min-height:16px; margin:6px 0;"></div>
+      <button class="btn primary" id="desc-start" style="width:100%;">Обновить</button>
+    </div>
+  </div>
+</div>
+
+<div id="proj-overlay" style="display:none">
+  <div id="proj-modal">
+    <div id="proj-head"><span>Новый проект</span><button id="proj-cancel" title="Отмена">&times;</button></div>
+    <div id="proj-body">
+      <div style="font-size:12.5px; color:var(--muted); margin-bottom:8px;">Текущий черновой чат (с историей) будет сохранён в папке нового проекта. Настройки модели, температуры и режима — тоже.</div>
+      <label class="fld">Наименование проекта (до 100 символов, без \ / : * ? " &lt; &gt; |)</label>
+      <input type="text" id="proj-name" maxlength="100" placeholder="Например: Отчёт за квартал">
+      <div id="proj-error" style="color:var(--danger); font-size:12px; min-height:16px; margin:6px 0;"></div>
+      <button class="btn primary" id="proj-create">Создать папку проекта</button>
+    </div>
+  </div>
+</div>
+
+<div id="spend-overlay" style="display:none">
+  <div id="spend-modal">
+    <div id="spend-head"><span>Расходы (руб.)</span><button id="spend-close" title="Закрыть">&times;</button></div>
+    <div id="spend-body">
+      <div class="spend-sec" id="spend-day"><h4>Сегодня</h4><div class="spend-wrap"></div></div>
+      <div class="spend-sec" id="spend-month"><h4>Текущий месяц</h4><div class="spend-wrap"></div></div>
+      <div style="color:var(--muted); font-size:11.5px;">Статистика прошедших месяцев архивируется в файл logs/Сумма ММ-ГГГГ.txt при первом расходе нового месяца. «Исходящий» включает рассуждения модели (reasoning). Клик по заголовку — сортировка.</div>
+    </div>
+  </div>
+</div>
+
+<div id="update-overlay" style="display:none">
+  <div id="update-modal">
+    <div id="update-head"><span>Обновление КРАБа</span><button id="update-close" title="Закрыть">&times;</button></div>
+    <div id="update-body">
+      <div id="update-info">Проверяю обновления...</div>
+      <div id="update-status"></div>
+      <div id="update-actions">
+        <button class="btn primary" id="update-do" style="width:auto; display:none;">Скачать и обновить</button>
+        <button class="btn" id="update-open" style="width:auto; display:none;">Открыть страницу релиза</button>
+        <button class="btn" id="update-later" style="width:auto;">Позже</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="welcome-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:60; align-items:center; justify-content:center;">
+  <div style="background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:14px; max-width:580px; width:92%; padding:22px 26px; box-shadow:0 10px 40px rgba(0,0,0,.3); font-size:14px; line-height:1.55;">
+    <div style="font-size:19px; font-weight:600; margin-bottom:8px;">Добро пожаловать в КРАБ</div>
+    <div>КРАБ работает через ИИ-роутер Selectel: один ключ даёт доступ ко многим моделям с оплатой в рублях. Чтобы начать, нужен API-ключ.</div>
+    <ol style="padding-left:20px; margin:12px 0;">
+      <li>Зарегистрируйтесь в Selectel: <a href="https://selectel.ru/?ref_code=1590b2d62c" target="_blank" rel="noopener" style="color:var(--accent)">selectel.ru</a>.
+        <div style="color:var(--muted); font-size:12.5px;">Это партнёрская ссылка: если вы зарегистрируетесь по ней, автор КРАБа получит вознаграждение от Selectel. Так вы поддержите развитие программы.</div></li>
+      <li>В панели управления: <b>Продукты → ИИ-роутер → Создать</b>, затем сгенерируйте API-ключ и сохраните его — полностью он показывается один раз.
+        <div style="color:var(--muted); font-size:12.5px;">Создать ИИ-роутер можно после минимального пополнения баланса (200 руб.) — если баланс пуст, сначала пополните его (пункт 3).</div></li>
+      <li>Пополните баланс в разделе «Биллинг» (для знакомства хватит 200–300 руб.).</li>
+      <li>Нажмите «Ввести ключ» и вставьте ключ в поле «API-ключ Selectel».</li>
+    </ol>
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <button class="btn primary" id="welcome-key" style="width:auto; padding:9px 18px;">Ввести ключ</button>
+      <button class="btn" id="welcome-later" style="width:auto; padding:9px 18px;">Позже</button>
+    </div>
+    <div style="color:var(--muted); font-size:12px; margin-top:12px;">Подробная инструкция — файл ИНСТРУКЦИЯ.html в папке программы.</div>
+  </div>
+</div>
+
+<div id="offline-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:70; align-items:center; justify-content:center;">
+  <div style="background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:14px; max-width:460px; width:90%; padding:20px 24px; font-size:14px; line-height:1.55; text-align:center;">
+    <div style="font-size:17px; font-weight:600; margin-bottom:6px;">Нет связи с программой</div>
+    <div>Если вы остановили КРАБ — это окно можно закрыть. Чтобы запустить его снова, используйте ярлык «КРАБ - Запуск» в папке программы, ярлык «КРАБ» на рабочем столе или файл Запуск.bat.</div>
+    <button class="btn" id="offline-hide" style="width:auto; padding:7px 16px; margin-top:12px;">Скрыть</button>
+  </div>
+</div>
+
+<div id="draft-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:65; align-items:center; justify-content:center;">
+  <div style="background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:14px; max-width:520px; width:92%; padding:20px 24px; font-size:14px; line-height:1.55;">
+    <div style="font-size:17px; font-weight:600; margin-bottom:6px;">Сохранить черновик?</div>
+    <div>В черновике есть переписка или файлы. При закрытии программы черновик очищается: переписка не сохраняется,
+      а файлы переносятся в корзину <code>workspace\.trash</code> и через 7 дней удаляются окончательно.</div>
+    <div id="draft-files" style="color:var(--muted); font-size:12.5px; margin-top:6px;"></div>
+    <div style="margin-top:6px;">Чтобы продолжить работу позже, сохраните черновик в проект — переписка и все файлы черновика перейдут в его папку.</div>
+    <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+      <button class="btn primary" id="draft-save" style="width:auto; padding:9px 16px;">Сохранить в проект</button>
+      <button class="btn" id="draft-discard" style="width:auto; padding:9px 16px;">Закрыть без сохранения</button>
+      <button class="btn" id="draft-cancel" style="width:auto; padding:9px 16px;">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div id="settings-overlay" style="display:none">
+  <div id="settings-modal">
+    <div id="settings-head"><span>Настройки подключения</span><button id="settings-close" title="Закрыть">&times;</button></div>
+    <div id="settings-body">
+      <label class="fld">API-ключ Selectel <span class="ok-badge" id="badge-api" style="display:none">&#10004; Есть</span></label>
+      <input type="password" id="set-api-key" placeholder="оставьте пустым, чтобы не менять" autocomplete="new-password">
+      <label class="mode-opt" style="margin-top:8px;">
+        <input type="checkbox" id="set-use-proxy">
+        <span class="t" style="font-size:13px;">Использовать прокси-сервер</span>
+      </label>
+      <div id="proxy-fields" style="display:none;">
+        <label class="fld">Адрес прокси-сервера</label>
+        <input type="text" id="set-proxy" placeholder="proxy.corp.local:3128" spellcheck="false">
+        <label class="mode-opt">
+          <input type="checkbox" id="set-proxy-auth">
+          <span class="t" style="font-size:13px;">Прокси с авторизацией</span><br>
+          <span class="d">Отметьте, только если прокси требует логин и пароль</span>
+        </label>
+        <div id="proxy-auth-fields" style="display:none;">
+          <label class="fld">Логин прокси</label>
+          <input type="text" id="set-proxy-user" placeholder="ivan.petrov" autocomplete="off" spellcheck="false">
+          <label class="fld">Пароль прокси <span class="ok-badge" id="badge-pass" style="display:none">&#10004; Есть</span></label>
+          <input type="password" id="set-proxy-pass" placeholder="оставьте пустым, чтобы не менять" autocomplete="new-password">
+        </div>
+      </div>
+      <label class="mode-opt" style="margin-top:8px;">
+        <input type="checkbox" id="set-ssl-verify" checked>
+        <span class="t" style="font-size:13px;">Проверка SSL-сертификата</span><br>
+        <span class="d">Некоторые корпоративные прокси перехватывают SSL. Если модели не загружаются — попробуйте изменить эту галочку</span>
+      </label>
+      <label class="fld">Дневной лимит расходов, руб. (0 или пусто — без лимита)</label>
+      <input type="text" id="set-daily-limit" inputmode="decimal" placeholder="0" autocomplete="off">
+      <label class="fld">Таймаут тишины модели, сек (если ответ «завис» — уменьшите)</label>
+      <input type="text" id="set-stall-timeout" inputmode="numeric" placeholder="180" autocomplete="off">
+      <label class="fld">Лимит итераций, шагов за запрос (1–60; больше — дольше и дороже)</label>
+      <input type="text" id="set-max-iter" inputmode="numeric" placeholder="30" autocomplete="off">
+      <div id="settings-error" style="color:var(--danger); font-size:12px; min-height:16px; margin:6px 0;"></div>
+      <button class="btn primary" id="settings-save">Сохранить и перезапустить</button>
+      <button class="btn" id="net-check" style="width:auto; padding:8px 14px; margin-top:6px;">Проверить связь с Selectel</button>
+      <div id="net-check-result" style="display:none; margin-top:8px; font-size:12.5px; line-height:1.5; border:1px solid var(--border); border-radius:8px; padding:8px 10px;"></div>
+      <div style="font-size:11.5px; color:var(--muted); margin-top:8px;">Пустые поля не меняют сохранённые значения. Ключ и пароль хранятся в .env зашифрованными (DPAPI вашего пользователя Windows).</div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ======================= Состояние: сессии ======================= */
+const GROUP_A = [
+  {name: "list_workspace_files", desc: "список файлов рабочей папки"},
+  {name: "search_in_files", desc: "поиск по файлам"},
+  {name: "read_text_file", desc: "чтение текста, CSV, логов"},
+  {name: "read_docx", desc: "чтение Word"},
+  {name: "read_xlsx", desc: "чтение Excel"},
+  {name: "read_pdf", desc: "чтение PDF"},
+  {name: "get_current_time", desc: "дата и время"},
+  {name: "calculate", desc: "калькулятор"},
+  {name: "ocr_file", desc: "распознавание текста с картинок и сканов PDF"},
+  {name: "read_pptx", desc: "чтение презентаций PowerPoint"},
+  {name: "read_email", desc: "чтение писем .eml и .msg"}
+];
+const GROUP_B = [
+  {name: "write_text_file", desc: "создание текстовых файлов"},
+  {name: "create_docx", desc: "создание Word-документов"},
+  {name: "create_or_update_xlsx", desc: "создание Excel-таблиц"},
+  {name: "manage_files", desc: "копирование/перемещение файлов"},
+  {name: "run_python_snippet", desc: "выполнение Python-кода"},
+  {name: "create_pptx", desc: "создание презентаций PowerPoint"}
+];
+const GROUP_W = [
+  {name: "fetch_url", desc: "открыть веб-страницу по адресу"}
+];
+
+const SCRATCH = "__scratch__";   // черновой чат без проекта
+const sessions = new Map();      // ключ -> сессия (у проекта ключ = имя проекта)
+let currentKey = SCRATCH;
+
+function mkSession(key) {
+  return {
+    key,
+    project: key === SCRATCH ? "" : key,
+    messages: [],                 // история (для проекта — как на диске)
+    model: "", temperature: 0.4, fullAutonomy: false,
+    webAccess: false,             // «Доступ в интернет» — у проекта свой
+    autoCode: true,               // «Выполнять код автоматически» — у проекта свой
+    restrictOutside: true,        // «Запретить активность вне папки проекта» — у проекта свой, по умолчанию включена
+    loaded: false,                // история/настройки загружены с диска
+    rendered: false,              // DOM чата построен
+    streaming: false, controller: null,
+    unread: false                 // модель закончила, а чат не открыт
+  };
+}
+function session(key) {
+  if (!sessions.has(key)) sessions.set(key, mkSession(key));
+  return sessions.get(key);
+}
+function cur() { return session(currentKey); }
+
+const $ = (id) => document.getElementById(id);
+const chat = $("chat");
+
+/* ======================= Видимости сессий ======================= */
+function sessionView(s) {
+  let v = chat.querySelector('.session-view[data-key="' + CSS.escape(s.key) + '"]');
+  if (!v) {
+    v = document.createElement("div");
+    v.className = "session-view";
+    v.dataset.key = s.key;
+    v.style.display = (s.key === currentKey) ? "block" : "none";  // активный вид сразу виден
+    chat.appendChild(v);
+  }
+  return v;
+}
+function showSessionView(s) {
+  chat.querySelectorAll(".session-view").forEach(v => {
+    v.style.display = v.dataset.key === s.key ? "block" : "none";
+  });
+  updateMsgMarks();
+}
+/* --- умная автопрокрутка ---
+   Пока пользователь у нижнего края, новое содержимое само подтягивает прокрутку.
+   Если он прокрутил вверх (колёсиком или бегунком) — фокус на новое не сдёргиваем,
+   пока он сам не вернётся к нижнему краю. */
+let followStream = true;
+let progScrollUntil = 0;      // игнорируем scroll-события сразу после программной прокрутки
+let chatPointerDown = false;  // зажатая кнопка мыши = перетаскивается бегунок
+chat.addEventListener("pointerdown", () => { chatPointerDown = true; });
+window.addEventListener("pointerup", () => { chatPointerDown = false; });
+chat.addEventListener("wheel", (e) => {
+  if (e.deltaY < 0) followStream = false;   // крутка вверх — пользователь хочет читать то, что выше
+}, { passive: true });
+chat.addEventListener("scroll", () => {
+  if (!chatPointerDown && Date.now() < progScrollUntil) return;  // отголосок нашей прокрутки
+  const dist = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  followStream = dist < 8;   // вернулся к нижнему краю — снова следим за новыми сообщениями
+});
+function scrollDown(force) {
+  if (force) followStream = true;
+  else if (!followStream) return;
+  progScrollUntil = Date.now() + 150;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/* --- метки запросов на полосе прокрутки: каждый кружок — запрос пользователя,
+   кружки равномерно распределены по всей высоте скролла, клик — переход к запросу --- */
+let historyRendering = false;
+function updateMsgMarks() {
+  const strip = $("msg-marks");
+  if (!strip) return;
+  strip.innerHTML = "";
+  const v = chat.querySelector('.session-view[data-key="' + CSS.escape(currentKey) + '"]');
+  if (!v) return;
+  const msgs = [...v.querySelectorAll(".msg-user")];
+  if (!msgs.length) return;
+  const n = msgs.length;
+  const H = strip.clientHeight;
+  if (H < 40) return;
+  const pad = 12, dot = Math.max(4, Math.min(8, n > 1 ? (H - 2 * pad) / (n - 1) : 8));
+  for (let i = 0; i < n; i++) {
+    const top = n === 1 ? (H - dot) / 2 : pad + i * (H - 2 * pad - dot) / (n - 1);
+    const b = document.createElement("button");
+    b.className = "mark";
+    b.style.top = top + "px";
+    b.style.width = dot + "px";
+    b.style.height = dot + "px";
+    const preview = (msgs[i].textContent || "").trim().replace(/\s+/g, " ").slice(0, 120);
+    b.title = "Запрос " + (i + 1) + " из " + n + (preview ? ": " + preview : "");
+    b.onclick = () => {
+      msgs[i].scrollIntoView({ behavior: "smooth", block: "start" });
+      msgs[i].classList.add("flash");
+      setTimeout(() => msgs[i].classList.remove("flash"), 1200);
+    };
+    strip.appendChild(b);
+  }
+}
+window.addEventListener("resize", updateMsgMarks);
+/* полоса меток лежит поверх окна чата — колесо над ней крутит сам чат */
+$("msg-marks").addEventListener("wheel", (e) => {
+  if (e.deltaY < 0) followStream = false;
+  chat.scrollTop += e.deltaY;
+}, { passive: true });
+
+/* ======================= Тема ======================= */
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  $("btn-theme").textContent = theme === "dark" ? "Светлая тема" : "Тёмная тема";
+  localStorage.setItem("selagent-theme", theme);
+}
+applyTheme(localStorage.getItem("selagent-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+$("btn-theme").onclick = () => {
+  const c = document.documentElement.getAttribute("data-theme");
+  applyTheme(c === "dark" ? "light" : "dark");
+};
+
+/* ======================= Markdown ======================= */
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function inlineMd(s) {
+  s = escapeHtml(s);
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  /* Картинки показываем только из рабочей папки (/api/file) или встроенные (data:image).
+     Внешний адрес не загружаем: через него документ с вредной инструкцией мог бы увести данные. */
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, src) =>
+    /^(\/api\/file\?|data:image\/(png|jpeg|webp|gif);base64,)/i.test(src)
+      ? '<img src="' + src + '" alt="' + alt + '" loading="lazy" style="max-width:min(100%,480px);border-radius:8px;display:block;margin:6px 0">'
+      : '<code>[внешнее изображение не загружено: ' + src + ']</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  /* Ссылки: только http(s), mailto и файлы рабочей папки — без javascript: и прочих схем */
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, href) =>
+    /^(https?:\/\/|mailto:|\/api\/file\?)/i.test(href)
+      ? '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + text + '</a>'
+      : text + ' <code>(' + href + ')</code>');
+  return s;
+}
+function renderCodeBlock(lang, code) {
+  return '<div class="codeblock"><div class="codehead"><span>' + escapeHtml(lang || "код") +
+    '</span><button class="copy-btn">Копировать</button></div><pre><code>' + escapeHtml(code) + "</code></pre></div>";
+}
+function mdToHtml(src) {
+  const fences = [];
+  src = src.replace(/```([\w+-]*)\r?\n?([\s\S]*?)```/g, (m, lang, code) => {
+    fences.push(renderCodeBlock(lang, code.replace(/\n$/, "")));
+    return "\u0000F" + (fences.length - 1) + "\u0000";
+  });
+  const lines = src.replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let i = 0;
+  const isFenceLine = (l) => /^\s*\u0000F(\d+)\u0000\s*$/.exec(l);
+  while (i < lines.length) {
+    const line = lines[i];
+    const f = isFenceLine(line);
+    if (f) { out.push(fences[parseInt(f[1], 10)]); i++; continue; }
+    if (!line.trim()) { i++; continue; }
+    let m = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (m) { const lv = Math.min(4, m[1].length); out.push("<h" + lv + ">" + inlineMd(m[2]) + "</h" + lv + ">"); i++; continue; }
+    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const rows = [line.trim()];
+      i += 2;
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { rows.push(lines[i].trim()); i++; }
+      const cells = (r) => r.slice(1, -1).split("|").map(c => inlineMd(c.trim()));
+      let html = "<table><thead><tr>" + cells(rows[0]).map(c => "<th>" + c + "</th>").join("") + "</tr></thead><tbody>";
+      for (let r = 2; r < rows.length; r++) html += "<tr>" + cells(rows[r]).map(c => "<td>" + c + "</td>").join("") + "</tr>";
+      out.push(html + "</tbody></table>");
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i]) && !isFenceLine(lines[i])) {
+        items.push("<li>" + inlineMd(lines[i].replace(/^\s*[-*+]\s+/, "")) + "</li>"); i++;
+      }
+      out.push("<ul>" + items.join("") + "</ul>"); continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i]) && !isFenceLine(lines[i])) {
+        items.push("<li>" + inlineMd(lines[i].replace(/^\s*\d+[.)]\s+/, "")) + "</li>"); i++;
+      }
+      out.push("<ol>" + items.join("") + "</ol>"); continue;
+    }
+    if (/^>\s?/.test(line)) {
+      const q = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) { q.push(inlineMd(lines[i].replace(/^>\s?/, ""))); i++; }
+      out.push("<blockquote>" + q.join("<br>") + "</blockquote>"); continue;
+    }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !isFenceLine(lines[i]) &&
+           !/^(#{1,6})\s/.test(lines[i]) && !/^\s*[-*+]\s+/.test(lines[i]) &&
+           !/^\s*\d+[.)]\s+/.test(lines[i]) && !/^\s*\|/.test(lines[i]) && !/^>\s?/.test(lines[i])) {
+      para.push(inlineMd(lines[i])); i++;
+    }
+    out.push("<p>" + para.join("<br>") + "</p>");
+  }
+  return out.join("\n");
+}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".copy-btn");
+  if (!btn) return;
+  const code = btn.closest(".codeblock").querySelector("code").textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    btn.textContent = "Скопировано";
+    setTimeout(() => { btn.textContent = "Копировать"; }, 1500);
+  });
+});
+
+/* ======================= Рендер чата сессии ======================= */
+function hideEmptyHint(s) {
+  const v = sessionView(s);
+  const h = v.querySelector(".empty-hint");
+  if (h) h.remove();
+}
+function ensureEmptyHint(s) {
+  const v = sessionView(s);
+  if (!v.querySelector(".turn") && !v.querySelector(".empty-hint")) {
+    v.appendChild(buildEmptyHint());
+  }
+}
+function buildEmptyHint() {
+  const d = document.createElement("div");
+  d.className = "empty-hint";
+  if (currentKey === SCRATCH) {
+    // Руководство пользователя для черновика
+    d.innerHTML = '<h1>Руководство пользователя</h1>' +
+      '<div style="text-align:left; max-width:700px; margin:0 auto;">' +
+      '<p><b>Основная рабочая папка:</b> <code>' + escapeHtml(WORKSPACE_PATH || "workspace/") + '</code> — все проекты создаются в ней.</p>' +
+      '<p><b>Проект</b> — это папка в рабочей директории + отдельный чат со своими настройками (модель, температура, режим прав), своей историей и скриншотами.</p>' +
+      '<p><b>Как начать:</b> напишите задачу в черновике, затем нажмите «Сохранить» у строки черновика — чат станет проектом. Либо кликните существующий проект слева, чтобы продолжить его.</p>' +
+      '<p style="background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:9px 12px;">&#9888;&#65039; <b>Перед работой с моделью всегда открывайте «Описание модели»</b> (ссылка под списком моделей): в каталоге есть очень дорогие модели, а есть дешёвые. Для начала подойдут <b>DeepSeek 4.1 Flash</b> и <b>GLM 5.3 Flash</b> — с них и начинайте тестирование.</p>' +
+      '<p><b>Экономия трафика (каждый запрос несёт всю историю):</b></p>' +
+      '<ul>' +
+      '<li>простые вопросы, не относящиеся к проекту, лучше задавать здесь, в черновике — они не занимают контекст проектов;</li>' +
+      '<li>время от времени начинайте новый чат в проекте — длинные диалоги дороже;</li>' +
+      '<li>если проект сильно разросся — кнопка «Сжать» в его строке ужимает историю, сохраняя правила и смыслы;</li>' +
+      '<li>большие файлы агент читает порциями — следите за размером документов.</li>' +
+      '</ul>' +
+      '<p style="margin-top:16px;"><b style="color:var(--danger)">Правила безопасной работы с ИИ-агентом</b></p>' +
+      '<ul>' +
+      '<li><b>Контроль данных:</b> загружайте только проверенные документы. Помните, что в файлах могут содержаться скрытые инструкции для модели (prompt injection).</li>' +
+      '<li><b>Поэтапный доступ:</b> незнакомые файлы сначала изучайте в режиме «Только чтение». Переходите к «Полной автономности» только после анализа содержимого.</li>' +
+      '<li><b>Верификация кода:</b> всегда проверяйте код перед запуском. Если алгоритм вызывает сомнения — используйте команду «Не выполнять». Опция «Запретить активность вне папки проекта» поможет вам быстро обнаружить подозрительные операции с файловой системой.</li>' +
+      '<li><b>Ограничение сети:</b> активируйте «Доступ в интернет» только в тех случаях, когда это необходимо для выполнения конкретной задачи.</li>' +
+      '<li><b>Мониторинг действий:</b> регулярно просматривайте логи выполнения команд, чтобы убедиться в корректности действий агента.</li>' +
+      '</ul></div>';
+  } else {
+    d.innerHTML = '<h1>' + escapeHtml(currentKey) + '</h1>' +
+      '<div>Рабочая папка проекта: <code>' + escapeHtml(WORKSPACE_PATH ? WORKSPACE_PATH + "\\\\" + currentKey : "workspace/" + currentKey) + '</code></div>' +
+      '<div>Здесь хранятся документы проекта, история этого чата и скриншоты.</div>' +
+      '<div class="examples"><div class="ex">Покажи список файлов проекта</div><div class="ex">Сделай сводку по документам</div></div>';
+  }
+  d.querySelectorAll(".ex").forEach(x => x.onclick = () => { const i = $("input"); i.value = x.textContent; i.focus(); autosize(); });
+  return d;
+}
+function addUserMsg(s, text) {
+  hideEmptyHint(s);
+  const v = sessionView(s);
+  const turn = document.createElement("div");
+  turn.className = "turn";
+  turn.innerHTML = '<div class="msg-user"></div>';
+  turn.querySelector(".msg-user").textContent = text;
+  v.appendChild(turn);
+  if (currentKey === s.key) { scrollDown(); if (!historyRendering) updateMsgMarks(); }
+}
+function newTurn(s) {
+  hideEmptyHint(s);
+  const v = sessionView(s);
+  const turn = document.createElement("div");
+  turn.className = "turn";
+  const agent = document.createElement("div");
+  agent.className = "msg-agent";
+  turn.appendChild(agent);
+  v.appendChild(turn);
+  if (currentKey === s.key) scrollDown();
+  const t = { s, turn, agent, textEl: null, textBuf: "", cost: 0, touched: false, capped: false,
+              reasoningLen: 0, thinkStart: 0, lastPing: 0, gotDone: false, terminated: false, stallWarned: false };
+  return t;
+}
+function showThinking(t) {
+  if (!t.agent) return;
+  if (!t.agent.querySelector(".thinking")) {
+    const th = document.createElement("div");
+    th.className = "thinking";
+    th.innerHTML = '<span class="brain">\u{1F9E0}</span> <span class="think-label">Рассуждение...</span><span class="think-extra"></span>';
+    t.agent.appendChild(th);
+    if (currentKey === t.s.key) scrollDown();
+  }
+  t.thinkStart = Date.now();
+}
+function hideThinking(t) {
+  if (t.agent) { const th = t.agent.querySelector(".thinking"); if (th) th.remove(); }
+}
+function startTextBlock(t) {
+  if (!t.textEl) {
+    t.textEl = document.createElement("div");
+    t.textEl.className = "md";
+    t.rawNode = document.createElement("span");
+    t.rawNode.className = "raw-stream";
+    t.textEl.appendChild(t.rawNode);
+    t.agent.appendChild(t.textEl);
+  }
+  return t.textEl;
+}
+/* Стрим: дешёвое добавление сырого текста; Markdown-рендер — один раз при завершении блока */
+function streamText(t, chunk) {
+  if (t.textBuf.length <= 2000000) {
+    t.textBuf += chunk;
+    t.rawNode.appendChild(document.createTextNode(chunk));
+  } else if (!t.capped) {
+    t.capped = true;
+    t.textBuf += "\n...[ответ очень длинный, показ усечён]";
+    t.rawNode.appendChild(document.createTextNode("\n...[ответ очень длинный, показ усечён]"));
+  }
+}
+function finalizeTextBlock(t) {
+  if (!t.textEl || !t.textBuf) return;
+  t.textEl.innerHTML = mdToHtml(t.textBuf);
+  t.rawNode = null;
+}
+function addStep(t, name, argsJson) {
+  const d = document.createElement("details");
+  d.className = "step";
+  let pretty = "";
+  try { pretty = JSON.stringify(JSON.parse(argsJson), null, 2); } catch (e) { pretty = argsJson; }
+  d.innerHTML = '<summary><span class="step-tag">Инструмент:</span> ' + escapeHtml(name) +
+    ' <span class="step-pending">&middot; выполняется...</span></summary>' +
+    '<div class="sbody"><div>Аргументы:</div><pre>' + escapeHtml(pretty) + '</pre><div>Результат:</div><pre class="res">...</pre></div>';
+  t.agent.appendChild(d);
+  if (currentKey === t.s.key) scrollDown();
+  return d;
+}
+
+/* ======================= SSE-обработка ======================= */
+function clearStall(t) {
+  /* связь восстановилась (пришли события) — убираем предупреждение о потере канала */
+  t.stallWarned = false;
+  if (t.stallWarnEl) { try { t.stallWarnEl.remove(); } catch (e) {} t.stallWarnEl = null; }
+}
+function handleSse(t, ev, data) {
+  /* любое событие (в т.ч. ping) = канал жив: обновляем таймер сторожа */
+  t.lastPing = Date.now();
+  if (t.stallWarned) clearStall(t);
+  if (ev === "iteration") {
+    finalizeTextBlock(t);
+    t.textEl = null; t.textBuf = ""; t.capped = false;
+    t.reasoningLen = 0;
+    showThinking(t);
+    return;
+  }
+  if (ev === "ping") {
+    /* сервер на связи: модель думает, инструмент работает или устанавливается соединение.
+       Модель при этом МОЖЕТ думать сколько угодно долго — это не зависание. */
+    const ex = t.agent && t.agent.querySelector(".thinking .think-extra");
+    if (ex && !t.reasoningLen) {
+      const sec = Math.max(0, Math.round((Date.now() - (t.thinkStart || Date.now())) / 1000));
+      ex.textContent = " \u00b7 " + sec + " \u0441, \u043a\u0430\u043d\u0430\u043b \u0436\u0438\u0432";
+    }
+    if (data && typeof data.phase === "string" && data.phase.indexOf("\u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442") === 0) {
+      /* долго работающий инструмент: показываем, сколько секунд он уже выполняется */
+      const steps = t.agent && t.agent.querySelectorAll("details.step .step-pending");
+      const last = steps && steps[steps.length - 1];
+      if (last) last.textContent = "\u00b7 \u0432\u044b\u043f\u043e\u043b\u043d\u044f\u0435\u0442\u0441\u044f... " +
+        (data.elapsed != null ? data.elapsed + " \u0441" : "");
+    }
+    return;
+  }
+  if (ev === "reasoning") {
+    /* модель генерирует скрытые рассуждения — показываем их объём */
+    t.lastPing = Date.now();
+    t.reasoningLen = (t.reasoningLen || 0) + ((data && data.content) ? data.content.length : 0);
+    const lb = t.agent && t.agent.querySelector(".thinking .think-label");
+    if (lb) lb.textContent = "Размышляет (скрытые рассуждения)";
+    const ex = t.agent && t.agent.querySelector(".thinking .think-extra");
+    if (ex) ex.textContent = " \u00b7 " + t.reasoningLen + " \u0441\u0438\u043c\u0432.";
+    return;
+  }
+  if (ev === "text") {
+    hideThinking(t);
+    t.touched = true;
+    startTextBlock(t);
+    streamText(t, data.content);
+    if (currentKey === t.s.key) scrollDown();
+    return;
+  }
+  if (ev === "tool_start") {
+    finalizeTextBlock(t);
+    hideThinking(t);
+    t.touched = true;
+    t.textEl = null;
+    addStep(t, data.name, data.arguments);
+    return;
+  }
+  if (ev === "tool_result") {
+    const steps = t.agent.querySelectorAll("details.step");
+    const last = steps[steps.length - 1];
+    if (last) {
+      last.querySelector(".step-pending").outerHTML = '<span style="color:var(--ok)">&middot; готово</span>';
+      last.querySelector("pre.res").textContent = data.result;
+      const cc = last.querySelector(".code-confirm");
+      if (cc) {   // подтверждение уже не нужно: решение принял пользователь или истёк таймаут
+        const act = cc.querySelector(".confirm-actions");
+        if (cc.dataset.decided) { if (act) act.remove(); }
+        else if (act) act.innerHTML = '<span class="confirm-status deny">Время ожидания истекло — код не выполнен.</span>';
+      }
+    }
+    return;
+  }
+  if (ev === "code_confirm") {
+    /* модель хочет выполнить код; при включённой проверке «вне папки проекта»
+       подозрительные строки приходят в reasons и подсвечиваются цветом */
+    const steps = t.agent.querySelectorAll("details.step");
+    const step = steps[steps.length - 1];
+    if (step) {
+      step.open = true;
+      const pend = step.querySelector(".step-pending");
+      if (pend) pend.outerHTML = '<span class="step-pending" style="color:var(--danger)">&middot; ожидает подтверждения</span>';
+      const body = step.querySelector(".sbody");
+      const box = document.createElement("div");
+      box.className = "code-confirm";
+      const sus = new Map((data.reasons || []).map(r => [r.line, r.reason]));
+      const parts = [];
+      String(data.code || "").split("\n").forEach((ln, i) => {
+        const esc = escapeHtml(ln.length ? ln : " ");
+        parts.push(sus.has(i + 1)
+          ? '<span class="suspect-line" title="' + escapeHtml(sus.get(i + 1)) + '">' + esc + "</span>"
+          : esc);
+      });
+      let head = '<div class="confirm-ask">Модель хочет выполнить код. Разрешить?</div>';
+      if ((data.reasons || []).length) {
+        head = '<div class="confirm-ask warn">Проверка «Запретить активность вне папки проекта» нашла подозрительные строки (выделены цветом):</div>' +
+          '<ul class="confirm-reasons">' +
+          data.reasons.map(r => "<li>строка " + r.line + ": " + escapeHtml(r.reason) + "</li>").join("") +
+          "</ul>";
+      }
+      box.innerHTML = head + '<pre class="confirm-code">' + parts.join("\n") + "</pre>" +
+        '<div class="confirm-actions"><button class="btn primary confirm-yes">Выполнить</button>' +
+        '<button class="btn confirm-no">Не выполнять</button></div>';
+      body.appendChild(box);
+      const decide = (approve) => {
+        box.dataset.decided = "1";
+        box.querySelector(".confirm-actions").innerHTML =
+          approve ? '<span class="confirm-status ok">Код подтверждён — выполняется...</span>'
+                  : '<span class="confirm-status deny">Пользователь отклонил выполнение.</span>';
+        fetch("/api/code/confirm", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: data.id, approve })
+        }).catch(() => {});
+      };
+      box.querySelector(".confirm-yes").onclick = () => decide(true);
+      box.querySelector(".confirm-no").onclick = () => decide(false);
+      if (currentKey === t.s.key) scrollDown(true);   // вопрос нельзя пропустить
+      else { t.s.unread = true; renderProjects(); }
+    }
+    return;
+  }
+  if (ev === "usage") {
+    if (typeof data.cost === "number") t.cost += data.cost;
+    if (data.usage && window.krabUsage) window.krabUsage(t.s, data.usage);
+    return;
+  }
+  if (ev === "notice") {
+    const n = document.createElement("div");
+    n.className = "notice"; n.textContent = data.message;
+    t.agent.appendChild(n);
+    if (currentKey === t.s.key) scrollDown();
+    return;
+  }
+  if (ev === "error") {
+    hideThinking(t);
+    const n = document.createElement("div");
+    n.className = "error-box"; n.textContent = "Ошибка: " + data.message;
+    t.agent.appendChild(n);
+    if (currentKey === t.s.key) scrollDown();
+    return;
+  }
+  if (ev === "done") {
+    t.gotDone = true;
+    finalizeTextBlock(t);
+    hideThinking(t);
+    t.s.messages.push(...(data.messages || []));
+    const cost = (typeof data.cost_total === "number" && data.cost_total > 0) ? data.cost_total : t.cost;
+    const foot = document.createElement("div");
+    foot.className = "turn-footer";
+    foot.innerHTML = (cost > 0 ? '<span class="cost-badge">Стоимость: ' + cost.toFixed(6) + " руб.</span>" : "") +
+      "<span>Итераций агентского цикла завершено.</span>";
+    t.turn.appendChild(foot);
+    if (currentKey !== t.s.key && t.touched) t.s.unread = true;
+    if (currentKey === t.s.key) scrollDown();
+    return;
+  }
+}
+
+/* ======================= Отправка ======================= */
+const input = $("input");
+function autosize() {
+  input.style.height = "auto";
+  input.style.height = Math.max(96, Math.min(260, input.scrollHeight)) + "px";
+}
+function persistSettings(s) {
+  if (s.project) {
+    fetch("/api/projects/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: s.project, model: s.model, temperature: s.temperature,
+        full_autonomy: s.fullAutonomy, web_access: s.webAccess,
+        auto_code: s.autoCode, restrict_outside: s.restrictOutside })
+    }).catch(() => {});
+  } else {
+    localStorage.setItem("selagent-model", s.model);
+    localStorage.setItem("selagent-temp", s.temperature);
+    localStorage.setItem("selagent-mode", s.fullAutonomy ? "full" : "readonly");
+    localStorage.setItem("krab-web", s.webAccess ? "1" : "0");
+    localStorage.setItem("krab-auto-code", s.autoCode ? "1" : "0");
+    localStorage.setItem("krab-restrict-outside", s.restrictOutside ? "1" : "0");
+  }
+}
+
+async function send() {
+  const s = cur();
+  const text = input.value.trim();
+  if (!text || s.streaming) return;
+  input.value = "";
+  autosize();
+
+  s.messages.push({ role: "user", content: text });
+  addUserMsg(s, text);
+  scrollDown(true);   // отправил сообщение — следим за ответом с самого начала
+
+  s.streaming = true;
+  s.rendered = true;
+  $("btn-send").textContent = "Стоп";
+  const t = newTurn(s);
+  showThinking(t);
+  s.controller = new AbortController();
+  renderProjects();
+
+  /* Сторож: срабатывает ТОЛЬКО при потере канала — когда совсем нет SSE-событий.
+     Пока сервер жив (модель думает / инструмент работает / соединение устанавливается),
+     каждые ~15 с приходит ping и это событие сбрасывает таймер. Поэтому сколько бы модель
+     ни размышляла (хоть 20 минут), ложного срабатывания не будет: при размышлении видно
+     «Размышляет · N симв.» или «N с, канал жив». Тишина дольше 90 с = пинги не идут =
+     соединение оборвано. */
+  t.lastPing = Date.now();
+  s.watchdog = setInterval(() => {
+    if (!s.streaming || !t.lastPing) return;
+    const idle = Date.now() - t.lastPing;
+    if (idle > 90000 && !t.stallWarned) {
+      t.stallWarned = true;
+      const n = document.createElement("div");
+      n.className = "notice";
+      n.textContent = "\u041f\u043e\u0442\u0435\u0440\u044f \u0441\u0432\u044f\u0437\u0438 \u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u043e\u043c: \u0434\u0430\u043d\u043d\u044b\u0445 \u043d\u0435\u0442 \u0443\u0436\u0435 " + Math.round(idle / 1000) +
+        " \u0441. \u041f\u043e\u043a\u0430 \u0441\u0432\u044f\u0437\u044c \u0435\u0441\u0442\u044c, \u0441\u0435\u0440\u0432\u0435\u0440 \u043a\u0430\u0436\u0434\u044b\u0435 ~15 \u0441 \u043f\u0440\u0438\u0441\u044b\u043b\u0430\u0435\u0442 \u0441\u0438\u0433\u043d\u0430\u043b \u00ab\u043a\u0430\u043d\u0430\u043b \u0436\u0438\u0432\u00bb \u2014 \u0441\u0435\u0439\u0447\u0430\u0441 \u0438\u0445 \u043d\u0435\u0442, \u0442.\u0435. \u044d\u0442\u043e \u043d\u0435 \u0440\u0430\u0437\u043c\u044b\u0448\u043b\u0435\u043d\u0438\u0435 \u043c\u043e\u0434\u0435\u043b\u0438, \u0430 \u043e\u0431\u0440\u044b\u0432 \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u044f. \u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u00ab\u0421\u0442\u043e\u043f\u00bb \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0437\u0430\u043f\u0440\u043e\u0441.";
+      t.stallWarnEl = n;
+      t.agent.appendChild(n);
+      if (currentKey === s.key) scrollDown();
+    }
+  }, 15000);
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: s.messages,
+        model: s.model,
+        temperature: s.temperature,
+        full_autonomy: s.fullAutonomy,
+        web_access: s.webAccess,
+        auto_code: s.autoCode,
+        restrict_outside: s.restrictOutside,
+        project: s.project
+      }),
+      signal: s.controller.signal
+    });
+    if (!res.ok || !res.body) throw new Error("HTTP " + res.status);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let ev = "message", dataStr = "";
+        block.split("\n").forEach(line => {
+          if (line.startsWith("event: ")) ev = line.slice(7).trim();
+          else if (line.startsWith("data: ")) dataStr += line.slice(6);
+        });
+        if (!dataStr) continue;
+        t.lastPing = Date.now();
+        try { handleSse(t, ev, JSON.parse(dataStr)); }
+        catch (e) { console.warn("SSE parse:", e, dataStr); }
+      }
+    }
+  } catch (e) {
+    t.terminated = true;
+    if (e && e.name === "AbortError") {
+      /* «Стоп»: обязательно убираем спиннер и финализируем текст */
+      hideThinking(t);
+      finalizeTextBlock(t);
+      const n = document.createElement("div");
+      n.className = "notice";
+      n.textContent = "Остановлено пользователем.";
+      t.agent.appendChild(n);
+      if (currentKey === s.key) scrollDown();
+    } else {
+      hideThinking(t);
+      const n = document.createElement("div");
+      n.className = "error-box";
+      n.textContent = "Сетевая ошибка: " + e.message;
+      t.agent.appendChild(n);
+      if (currentKey === s.key) scrollDown();
+    }
+  } finally {
+    if (s.watchdog) { clearInterval(s.watchdog); s.watchdog = null; }
+    if (t.stallWarned) clearStall(t);
+    if (!t.gotDone && !t.terminated) {
+      /* сервер закрыл поток, не прислал done — не оставляем «вечный спиннер» */
+      finalizeTextBlock(t);
+      hideThinking(t);
+      const n = document.createElement("div");
+      n.className = "notice";
+      n.textContent = "Соединение с сервером закрылось до завершения ответа.";
+      t.agent.appendChild(n);
+    }
+    s.streaming = false;
+    s.controller = null;
+    if (currentKey !== s.key && t.touched) s.unread = true;
+    $("btn-send").textContent = cur().streaming ? "Стоп" : "Отправить";
+    renderProjects();
+    updateTopbar();
+    input.focus();
+  }
+}
+
+$("btn-send").onclick = () => {
+  const s = cur();
+  if (s.streaming && s.controller) { s.controller.abort(); return; }
+  send();
+};
+
+$("btn-new").onclick = () => {
+  const oldScratch = session(SCRATCH);
+  if (oldScratch.streaming && oldScratch.controller) oldScratch.controller.abort();
+  const oldView = chat.querySelector('.session-view[data-key="' + SCRATCH + '"]');
+  if (oldView) oldView.remove();
+  sessions.delete(SCRATCH);
+  currentKey = SCRATCH;
+  localStorage.setItem("selagent-last", SCRATCH);
+  const sc = session(SCRATCH);
+  sc.model = localStorage.getItem("selagent-model") || "";
+  sc.temperature = parseFloat(localStorage.getItem("selagent-temp") || "0.4") || 0.4;
+  sc.fullAutonomy = localStorage.getItem("selagent-mode") === "full";
+  sc.webAccess = localStorage.getItem("krab-web") === "1";
+  sc.autoCode = localStorage.getItem("krab-auto-code") !== "0";
+  sc.restrictOutside = localStorage.getItem("krab-restrict-outside") !== "0";   // по умолчанию включена
+  showSessionView(sc);
+  syncModelUI(sc);
+  renderTools();
+  applyTempUI(sc);
+  applyModeUI(sc);
+  updateTopbar();
+  renderProjects();
+  ensureEmptyHint(sc);
+};
+
+/* ======================= Сворачиваемые панели ======================= */
+document.querySelectorAll(".panel.collapsible > h3").forEach(h => {
+  h.onclick = () => {
+    const p = h.parentElement;
+    p.classList.toggle("collapsed");
+    const key = "collapsed-" + p.id;
+    if (p.classList.contains("collapsed")) localStorage.setItem(key, "1");
+    else localStorage.removeItem(key);
+  };
+});
+document.querySelectorAll(".panel.collapsible").forEach(p => {
+  if (localStorage.getItem("collapsed-" + p.id)) p.classList.add("collapsed");
+});
+
+/* ======================= Модели ======================= */
+let MODELS = [];
+/* --- закреплённые модели (звёздочка): общий для всех чатов список, хранится в браузере --- */
+let PINNED = [];
+try {
+  const p = JSON.parse(localStorage.getItem("krab-pinned") || "[]");
+  if (Array.isArray(p)) PINNED = p.filter(x => typeof x === "string");
+} catch (e) { PINNED = []; }
+
+const modelName = (m) => (m.display_name && m.display_name !== m.id) ? m.display_name : m.id;
+const byModelName = (a, b) =>
+  modelName(a).localeCompare(modelName(b), "ru", { sensitivity: "base", numeric: true }) ||
+  a.id.localeCompare(b.id, undefined, { numeric: true });
+
+function fillModelSelect(models) {
+  MODELS = models;
+  buildModelList();
+  updateModelDdLabel();
+}
+function isPinned(id) { return PINNED.includes(id); }
+
+function buildModelList() {
+  const list = $("model-dd-list");
+  if (!list) return;
+  list.innerHTML = "";
+  const pinned = MODELS.filter(m => isPinned(m.id)).sort(byModelName);
+  const rest = MODELS.filter(m => !isPinned(m.id)).sort(byModelName);
+  const addRow = (m) => {
+    const row = document.createElement("div");
+    row.className = "model-row" + (cur().model === m.id ? " selected" : "");
+    const showId = modelName(m) !== m.id;
+    const txt = document.createElement("span");
+    txt.className = "model-row-txt";
+    txt.innerHTML = '<div class="model-row-name">' + escapeHtml(modelName(m)) + "</div>" +
+      (showId ? '<div class="model-row-id">' + escapeHtml(m.id) + "</div>" : "");
+    txt.title = showId ? m.id : modelName(m);
+    row.appendChild(txt);
+    const star = document.createElement("button");
+    star.type = "button";
+    star.className = "model-star" + (isPinned(m.id) ? " pinned" : "");
+    star.textContent = isPinned(m.id) ? "\u2605" : "\u2606";
+    star.title = isPinned(m.id) ? "Открепить" : "Закрепить: модель всегда будет вверху списка";
+    star.onclick = (e) => {
+      e.stopPropagation();
+      PINNED = isPinned(m.id) ? PINNED.filter(x => x !== m.id) : PINNED.concat(m.id);
+      localStorage.setItem("krab-pinned", JSON.stringify(PINNED));
+      buildModelList();
+      updateModelDdLabel();
+    };
+    row.appendChild(star);
+    row.onclick = () => { selectModel(m.id); };
+    list.appendChild(row);
+  };
+  pinned.forEach(addRow);
+  rest.forEach(addRow);
+  const customRow = document.createElement("div");
+  customRow.className = "model-row" + (!cur().model || !modelInfo(cur().model) ? " selected" : "");
+  customRow.textContent = "— Ввести ID вручную —";
+  customRow.onclick = () => { closeModelList(); selectModelCustom(); };
+  list.appendChild(customRow);
+}
+function updateModelDdLabel() {
+  const s = cur();
+  const m = modelInfo(s.model);
+  const name = m ? modelName(m) : (s.model || "—");
+  $("model-dd-label").textContent = (isPinned(s.model) ? "\u2605 " : "") + name;
+}
+function selectModel(id) {
+  const s = cur();
+  s.model = id;
+  $("model-custom").style.display = "none";
+  persistSettings(s);
+  syncModelUI(s);
+  updateTopbar();
+  closeModelList();
+}
+function selectModelCustom() {
+  const s = cur();
+  const custom = $("model-custom");
+  custom.style.display = "";
+  custom.focus();
+  s.model = custom.value.trim();
+  persistSettings(s);
+  syncModelUI(s);
+  updateTopbar();
+}
+function openModelList() { buildModelList(); $("model-dd-list").style.display = "block"; }
+function closeModelList() { $("model-dd-list").style.display = "none"; }
+$("model-dd-btn").onclick = (e) => {
+  e.stopPropagation();
+  const open = $("model-dd-list").style.display !== "none";
+  if (open) closeModelList(); else openModelList();
+};
+document.addEventListener("click", (e) => {
+  if (!$("model-dd").contains(e.target)) closeModelList();
+});
+
+function modelInfo(id) {
+  return MODELS.find(m => m.id === id) || null;
+}
+function fmtTokens(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(n % 1e3 ? 1 : 0) + "K";
+  return String(n);
+}
+function renderModelInfo() {
+  const link = $("model-info-link");
+  link.style.display = modelInfo(cur().model) ? "" : "none";
+}
+function openModelModal() {
+  const m = modelInfo(cur().model);
+  if (!m) return;
+  const esc = escapeHtml;
+  const f1m = (v) => {
+    const x = parseFloat(v) * 1e6;
+    return x >= 100 ? x.toFixed(0) : x.toFixed(2);
+  };
+  const rows = [];
+  rows.push(["Название", esc(m.display_name || m.id)]);
+  rows.push(["ID", "<code>" + esc(m.id) + "</code>"]);
+  if (m.owned_by) rows.push(["Поставщик", esc(m.owned_by)]);
+  if (m.pricing) {
+    const p = m.pricing;
+    rows.push(["Цена ввода", '<span class="price">' + f1m(p.prompt || 0) + " руб.</span> за 1M токенов <span style='color:var(--muted)'>(" + esc(p.prompt || "—") + " руб. за токен)</span>"]);
+    rows.push(["Цена вывода", '<span class="price">' + f1m(p.completion || 0) + " руб.</span> за 1M токенов <span style='color:var(--muted)'>(" + esc(p.completion || "—") + " руб. за токен)</span>"]);
+    if (p.input_cache_read) rows.push(["Кэш (чтение)", esc(p.input_cache_read) + " руб. за токен"]);
+    if (p.input_cache_write) rows.push(["Кэш (запись)", esc(p.input_cache_write) + " руб. за токен"]);
+  }
+  if (m.context_window) rows.push(["Контекст", fmtTokens(m.context_window) + " токенов"]);
+  if (m.max_output) rows.push(["Макс. ответ", fmtTokens(m.max_output) + " токенов"]);
+  if (m.input_modalities) rows.push(["Входы", m.input_modalities.map(esc).join(", ")]);
+  if (m.output_modalities) rows.push(["Выходы", m.output_modalities.map(esc).join(", ")]);
+  if (m.aliases && m.aliases.length) rows.push(["Алиасы", m.aliases.map(a => "<code>" + esc(a) + "</code>").join(", ")]);
+  if (m.created) rows.push(["Добавлена", new Date(m.created * 1000).toLocaleDateString("ru-RU")]);
+  let caps = "";
+  if (m.capabilities) {
+    const names = { tool_calling: "tool calling", vision: "vision", reasoning: "reasoning",
+                    structured_output: "structured output", streaming: "streaming" };
+    const chips = Object.entries(m.capabilities).filter(([, v]) => v).map(([k]) => '<span class="cap">' + (names[k] || k) + "</span>").join("");
+    if (chips) caps = '<div style="margin-top:8px">' + chips + "</div>";
+  }
+  const table = "<table>" + rows.map(r => "<tr><td class='k'>" + r[0] + "</td><td>" + r[1] + "</td></tr>").join("") + "</table>";
+  const descHtml = m.description
+    ? '<div class="model-desc">' + esc(m.description) + "</div>" +
+      '<div class="model-desc-src">Полное описание из каталога Selectel (файл model_descriptions.json)</div>'
+    : "";
+  $("modal-body").innerHTML = descHtml + table + caps;
+  $("modal-overlay").style.display = "flex";
+}
+function closeModelModal() { $("modal-overlay").style.display = "none"; }
+
+function syncModelUI(s) {
+  const custom = $("model-custom");
+  if (modelInfo(s.model)) {
+    custom.style.display = "none";
+  } else if (!s.model && MODELS.length) {
+    s.model = [...MODELS].sort(byModelName)[0].id;   // как раньше: первая модель списка
+    custom.style.display = "none";
+  } else {
+    custom.style.display = "";
+    custom.value = s.model;
+  }
+  updateModelDdLabel();
+  renderModelInfo();
+}
+async function loadModels() {
+  $("status").textContent = "Загрузка списка моделей...";
+  try {
+    const res = await fetch("/api/models");
+    const data = await res.json();
+    fillModelSelect(data.models);
+    if (!cur().model && data.default_model) cur().model = data.default_model;
+    syncModelUI(cur());
+    persistSettings(cur());
+    updateTopbar();
+    const blurb = "";
+    $("status").textContent = data.ok
+      ? "Модели получены из API (" + data.models.length + " шт.)" + blurb
+      : "API моделей недоступен, используется список по умолчанию"
+        + (data.error ? " — " + data.error : "")
+        + (data.hint ? ". " + data.hint : "") + blurb;
+  } catch (e) {
+    $("status").textContent = "Не удалось загрузить модели: " + e;
+  }
+}
+function updateTopbar() {
+  const s = cur();
+  const ps = $("proj-status");
+  if (s.project) {
+    ps.innerHTML = "Проект: <b>" + escapeHtml(s.project) + "</b> &middot; ";
+  } else {
+    ps.innerHTML = 'Проект: <b style="color:var(--muted)">черновик</b> &middot; ';
+  }
+  $("model-name-label").textContent = s.model || "—";
+}
+$("model-custom").oninput = () => {
+  const s = cur();
+  s.model = $("model-custom").value.trim();
+  persistSettings(s);
+  updateModelDdLabel();
+  renderModelInfo();
+  updateTopbar();
+};
+$("btn-refresh-models").onclick = loadModels;
+$("model-info-link").onclick = (e) => { e.preventDefault(); openModelModal(); };
+$("modal-close").onclick = closeModelModal;
+// Закрытие по клику снаружи — только если нажатие И отпускание произошли снаружи окна:
+// перетаскивание выделения из окна наружу больше не закрывает его.
+function overlayCloseGuard(overlay, closeFn) {
+  let armed = false;
+  overlay.addEventListener("mousedown", (e) => { armed = (e.target === overlay); });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay && armed) { armed = false; closeFn(); }
+  });
+}
+overlayCloseGuard($("modal-overlay"), closeModelModal);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModelModal(); closeProjModal(); closeSettingsModal(); closeDescModal(); closeModelList(); } });
+
+/* ======================= Обновление описаний моделей ======================= */
+function openDescModal() {
+  $("desc-error").textContent = "";
+  $("desc-error").style.color = "";
+  $("desc-token").value = "";
+  $("desc-overlay").style.display = "flex";
+  $("desc-token").focus();
+}
+function closeDescModal() { $("desc-overlay").style.display = "none"; }
+$("btn-update-desc").onclick = openDescModal;
+$("desc-cancel").onclick = closeDescModal;
+overlayCloseGuard($("desc-overlay"), closeDescModal);
+$("desc-token").onkeydown = (e) => { if (e.key === "Enter") $("desc-start").click(); };
+$("desc-start").onclick = async () => {
+  const btn = $("desc-start"), err = $("desc-error");
+  const token = $("desc-token").value.trim();
+  if (!token) { err.style.color = "var(--danger)"; err.textContent = "Вставьте токен x-auth-token"; return; }
+  btn.disabled = true; btn.textContent = "Обновляю...";
+  err.style.color = ""; err.textContent = "";
+  try {
+    const res = await fetch("/api/update-descriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || ("HTTP " + res.status));
+    err.style.color = "var(--accent)";
+    err.textContent = "Готово: моделей — " + data.models + ", ключей (id/алиасы) — " + data.keys;
+    await loadModels();
+    setTimeout(closeDescModal, 1500);
+  } catch (e) {
+    err.style.color = "var(--danger)";
+    err.textContent = "Не удалось обновить: " + (e.message || e);
+  } finally {
+    btn.disabled = false; btn.textContent = "Обновить";
+  }
+};
+
+/* ======================= Температура и режим ======================= */
+function applyTempUI(s) {
+  $("temp").value = s.temperature;
+  $("temp-val").textContent = s.temperature.toFixed(2);
+}
+$("temp").oninput = () => {
+  const s = cur();
+  s.temperature = parseFloat($("temp").value);
+  $("temp-val").textContent = s.temperature.toFixed(2);
+  persistSettings(s);
+};
+function applyModeUI(s) {
+  document.querySelectorAll("input[name=mode]").forEach(r => {
+    r.checked = (r.value === (s.fullAutonomy ? "full" : "readonly"));
+  });
+  /* галочки «Режима прав» — у каждого чата свои */
+  $("web-access").checked = !!s.webAccess;
+  $("auto-code").checked = !!s.autoCode;
+  $("restrict-outside").checked = !!s.restrictOutside;
+  /* обе галочки про выполнение кода — только в «Полной автономности» */
+  $("auto-code").disabled = !s.fullAutonomy;
+  $("restrict-outside").disabled = !s.fullAutonomy;
+}
+document.querySelectorAll("input[name=mode]").forEach(r => {
+  r.onchange = () => {
+    const s = cur();
+    s.fullAutonomy = (r.value === "full");
+    document.querySelectorAll("input[name=mode]").forEach(x => { x.checked = (x === r); });
+    persistSettings(s);
+    renderTools();
+    applyModeUI(s);   // активировать/погасить галочки выполнения кода
+  };
+});
+
+/* ======================= Инструменты ======================= */
+function renderTools() {
+  const s = cur();
+  const ul = $("tools-list");
+  ul.innerHTML = "";
+  GROUP_A.forEach(t => ul.appendChild(toolLi(t, true)));
+  GROUP_B.forEach(t => ul.appendChild(toolLi(t, s.fullAutonomy,
+    undefined,
+    t.name === "run_python_snippet" ? pythonRunHint() : undefined)));
+  GROUP_W.forEach(t => ul.appendChild(toolLi(t, $("web-access").checked, "нужна галочка «Доступ в интернет»")));
+}
+/* подсказка у run_python_snippet: как сейчас выполняется код */
+function pythonRunHint() {
+  const s = cur();
+  if (!s.autoCode) return "каждый запуск — после подтверждения";
+  if (s.restrictOutside) return "проверяется выход за папку проекта";
+  return "";
+}
+function toolLi(t, enabled, hint, enabledHint) {
+  const li = document.createElement("li");
+  if (!enabled) li.className = "off";
+  li.innerHTML = '<span class="dot"></span><span><b>' + t.name + "</b> — " + t.desc +
+    (enabled
+      ? (enabledHint ? " <i>(" + enabledHint + ")</i>" : "")
+      : " <i>(" + (hint || "нужен режим полной автономности") + ")</i>") +
+    "</span>";
+  return li;
+}
+
+/* ======================= Проекты ======================= */
+function openProjModal() {
+  $("proj-overlay").style.display = "flex";
+  $("proj-name").value = "";
+  $("proj-error").textContent = "";
+  setTimeout(() => $("proj-name").focus(), 30);
+}
+function closeProjModal() { $("proj-overlay").style.display = "none"; }
+$("proj-cancel").onclick = closeProjModal;
+overlayCloseGuard($("proj-overlay"), closeProjModal);
+$("proj-name").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); $("proj-create").click(); } };
+$("proj-create").onclick = async () => {
+  const name = $("proj-name").value.trim();
+  if (!name) { $("proj-error").textContent = "Введите название проекта."; return; }
+  if (name.length > 100) { $("proj-error").textContent = "Не более 100 символов."; return; }
+  try {
+    const sc = session(SCRATCH);   // сохраняем черновой чат в проект
+    const res = await fetch("/api/projects", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, messages: sc.messages })
+    });
+    const data = await res.json();
+    if (!data.ok) { $("proj-error").textContent = data.error || "Ошибка создания."; return; }
+    closeProjModal();
+    const ps = session(data.name);
+    ps.model = sc.model; ps.temperature = sc.temperature; ps.fullAutonomy = sc.fullAutonomy;
+    ps.webAccess = sc.webAccess; ps.autoCode = sc.autoCode; ps.restrictOutside = sc.restrictOutside;
+    persistSettings(ps);           // настройки черновика -> в проект
+    /* черновик переехал в проект целиком (переписка и файлы) — начинаем чистый черновик */
+    if (sc.streaming && sc.controller) sc.controller.abort();
+    const oldDraftView = chat.querySelector('.session-view[data-key="' + SCRATCH + '"]');
+    if (oldDraftView) oldDraftView.remove();
+    sessions.delete(SCRATCH);
+    const nd = session(SCRATCH);
+    nd.model = sc.model; nd.temperature = sc.temperature; nd.fullAutonomy = sc.fullAutonomy;
+    nd.webAccess = sc.webAccess; nd.autoCode = sc.autoCode; nd.restrictOutside = sc.restrictOutside;
+    if (window.krabDraftChanged) window.krabDraftChanged();
+    switchTo(data.name);           // подтянет историю с диска и применит настройки
+    $("status").textContent = "Проект «" + data.name + "» создан: переписка и файлы черновика перенесены в его папку.";
+  } catch (e) {
+    $("proj-error").textContent = "Ошибка: " + e;
+  }
+};
+
+let WORKSPACE_PATH = "";
+async function renderProjects() {
+  const list = $("projects-list");
+  try {
+    const res = await fetch("/api/projects");
+    const data = await res.json();
+    if (data.workspace) WORKSPACE_PATH = data.workspace;
+    list.innerHTML = "";
+    list.appendChild(projRow(SCRATCH, "Черновик (без проекта)", true));
+    (data.projects || []).forEach(p => list.appendChild(projRow(p.name, p.name, false)));
+    if (!(data.projects || []).length) {
+      const note = document.createElement("div");
+      note.style.cssText = "color:var(--muted); font-size:12px; line-height:1.5";
+      note.textContent = "Папок-проектов пока нет. Напишите задачу в черновике и нажмите «Сохранить» — черновик станет проектом. Папки, созданные вручную в workspace/, появятся здесь после F5.";
+      list.appendChild(note);
+    }
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--danger); font-size:12px">Не удалось загрузить проекты: ' + escapeHtml(String(e)) + "</div>";
+  }
+}
+function projRow(key, label, isScratch) {
+  const s = session(key);
+  const d = document.createElement("div");
+  d.className = "proj-item" + (currentKey === key ? " active" : "") + (s.streaming ? " working" : "");
+  const nm = document.createElement("span");
+  nm.className = "proj-name";
+  nm.textContent = label;
+  d.appendChild(nm);
+  d.title = isScratch ? "Переключиться на черновой чат" : "Открыть чат проекта";
+  d.onclick = () => switchTo(key);
+  if (s.streaming) {
+    const w = document.createElement("span");
+    w.className = "proj-working";
+    w.title = "Проект работает — модель размышляет или выполняет задачу. Нажмите на строку, чтобы открыть чат.";
+    w.innerHTML = '<span class="brain">\u{1F9E0}</span>';
+    d.appendChild(w);
+  } else if (s.unread) {
+    const a = document.createElement("span");
+    a.className = "proj-alert";
+    a.textContent = "\u2757";
+    a.title = "Модель завершила работу или спрашивает";
+    d.appendChild(a);
+  }
+  if (isScratch) {
+    const save = document.createElement("button");
+    save.className = "save-txt";
+    save.textContent = "Сохранить";
+    save.title = "Сохранить черновик как проект (с историей и настройками)";
+    save.onclick = (e) => { e.stopPropagation(); openProjModal(); };
+    d.appendChild(save);
+  } else {
+    const open = document.createElement("button");
+    open.className = "proj-ico";
+    open.textContent = "\u{1F4C2}";
+    open.title = "Открыть папку проекта в проводнике";
+    open.onclick = (e) => { e.stopPropagation(); openProjectFolder(key); };
+    d.appendChild(open);
+    const cmp = document.createElement("button");
+    cmp.className = "save-txt";
+    cmp.textContent = "Сжать";
+    cmp.title = "Сжать проект: очистить скриншоты и старые версии файлов, сжать историю в сводку";
+    cmp.onclick = (e) => { e.stopPropagation(); compactProject(key); };
+    d.appendChild(cmp);
+    const del = document.createElement("button");
+    del.className = "proj-ico";
+    del.textContent = "\u{1F5D1}";
+    del.title = "Удалить проект";
+    del.onclick = (e) => { e.stopPropagation(); deleteProject(key); };
+    d.appendChild(del);
+  }
+  return d;
+}
+async function compactProject(name) {
+  const s = session(name);
+  if (s.streaming) { $("status").textContent = "Дождитесь завершения работы агента в этом проекте."; return; }
+  if (!confirm('Сжать проект "' + name + '"?\n\nБудут удалены безвозвратно:\n' +
+    '— все скриншоты, вставленные в чат (файлы, прикреплённые скрепкой, и сгенерированные картинки остаются),\n' +
+    '— большая часть истории чата: она будет сжата моделью в сводку (останется не более 50%, обычно 20–30%).\n\n' +
+    'Будут перенесены в подпапку .trash проекта (их можно вернуть):\n' +
+    '— старые версии файлов (v1, копии, бэкапы — там, где есть новые).\n\n' +
+    'Это может дать некоторый дискомфорт в дальнейшем сопровождении проекта, если модель некорректно выделит главные смыслы. ' +
+    'Оригинал истории сохранится в папке logs (модели он недоступен).\n\nПродолжить?')) return;
+  $("status").textContent = "Сжатие проекта «" + name + "» — модель обрабатывает историю...";
+  try {
+    const res = await fetch("/api/projects/compact", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (!data.ok) { $("status").textContent = "Не удалось сжать проект: " + (data.error || res.status); return; }
+    const r = data.report;
+    const ps = session(name);
+    ps.loaded = false; ps.rendered = false;   // перечитать сжатую историю с диска
+    if (currentKey === name) switchTo(name);
+    $("status").textContent = 'Проект "' + name + '" сжат: скриншотов удалено ' + r.images_removed +
+      ", старых файлов перенесено в .trash " + r.old_files_removed.length + ", история " + r.history_before + " → " +
+      r.history_after + " симв. (-" + r.reduction + "%).";
+  } catch (e) {
+    $("status").textContent = "Ошибка: " + e;
+  }
+}
+async function openProjectFolder(name) {
+  try {
+    const res = await fetch("/api/projects/open", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (!data.ok) $("status").textContent = "Не удалось открыть папку: " + (data.error || res.status);
+  } catch (e) {
+    $("status").textContent = "Ошибка: " + e;
+  }
+}
+async function deleteProject(name) {
+  if (!confirm('Удалить проект "' + name + '"?\n\nБудут безвозвратно удалены:\n— все файлы и документы проекта,\n— история связанного чата,\n— сохранённые скриншоты (папка image).\n\nОтменить удаление будет невозможно!')) return;
+  try {
+    const res = await fetch("/api/projects/delete", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (!data.ok) { $("status").textContent = "Не удалось удалить проект: " + (data.error || res.status); return; }
+    $("status").textContent = 'Проект "' + name + '" удалён.';
+    const view = chat.querySelector('.session-view[data-key="' + CSS.escape(name) + '"]');
+    if (view) view.remove();
+    sessions.delete(name);
+    if (currentKey === name) {
+      currentKey = SCRATCH;
+      localStorage.setItem("selagent-last", SCRATCH);
+      const sc = session(SCRATCH);
+      showSessionView(sc);
+      syncModelUI(sc); renderTools(); applyTempUI(sc); applyModeUI(sc);
+      ensureEmptyHint(sc);
+      updateTopbar();
+    }
+    renderProjects();
+  } catch (e) {
+    $("status").textContent = "Ошибка: " + e;
+  }
+}
+async function switchTo(key) {
+  const firstSwitch = currentKey !== key;
+  const s = session(key);
+  currentKey = key;
+  localStorage.setItem("selagent-last", key);
+  s.unread = false;
+  if (firstSwitch && s.project && !s.loaded) {
+    try {
+      const res = await fetch("/api/projects");
+      const data = await res.json();
+      const p = (data.projects || []).find(x => x.name === s.project);
+      if (!p) {
+        sessions.delete(key);
+        currentKey = SCRATCH;
+        localStorage.setItem("selagent-last", SCRATCH);
+        const sc = session(SCRATCH);
+        showSessionView(sc);
+        syncModelUI(sc); renderTools(); applyTempUI(sc); applyModeUI(sc);
+        ensureEmptyHint(sc);
+        updateTopbar(); renderProjects();
+        $("status").textContent = "Проект «" + key + "» не найден — открыт черновик.";
+        return;
+      }
+      if (p.settings.model) s.model = p.settings.model;
+      s.temperature = p.settings.temperature;
+      s.fullAutonomy = p.settings.full_autonomy;
+      s.webAccess = !!p.settings.web_access;
+      s.autoCode = p.settings.auto_code !== false;
+      s.restrictOutside = p.settings.restrict_outside !== false;   // по умолчанию включена
+      s.loaded = true;
+      const h = await fetch("/api/chat_history?project=" + encodeURIComponent(s.project));
+      const hd = await h.json();
+      if (hd.ok) s.messages = hd.messages || [];
+    } catch (e) {
+      console.warn("switchTo:", e);
+    }
+  }
+  showSessionView(s);
+  syncModelUI(s);
+  renderTools();
+  applyTempUI(s);
+  applyModeUI(s);
+  updateTopbar();
+  if (!s.rendered && !s.streaming) renderHistory(s);
+  if (!s.messages.length && !s.streaming) ensureEmptyHint(s);
+  $("btn-send").textContent = s.streaming ? "Стоп" : "Отправить";
+  renderProjects();
+  scrollDown(true);
+}
+function renderHistory(s) {
+  const v = sessionView(s);
+  v.innerHTML = "";
+  historyRendering = true;
+  try {
+    if (!s.messages.length) { ensureEmptyHint(s); s.rendered = true; return; }
+    hideEmptyHint(s);
+    const toolResults = {};
+    s.messages.forEach(m => { if (m.role === "tool" && m.tool_call_id) toolResults[m.tool_call_id] = m.content; });
+    s.messages.forEach(m => {
+      if (m.role === "user") { addUserMsg(s, String(m.content == null ? "" : m.content)); return; }
+      if (m.role !== "assistant") return;
+      const turn = document.createElement("div");
+      turn.className = "turn";
+      const agent = document.createElement("div");
+      agent.className = "msg-agent";
+      turn.appendChild(agent);
+      v.appendChild(turn);
+      if (m.content) {
+        const d = document.createElement("div");
+        d.className = "md";
+        d.innerHTML = mdToHtml(String(m.content));
+        agent.appendChild(d);
+      }
+      (m.tool_calls || []).forEach(tc => {
+        if (!tc.function) return;
+        const step = addStep({ s, agent }, tc.function.name, tc.function.arguments);
+        if (toolResults[tc.id] !== undefined) {
+          step.querySelector(".step-pending").outerHTML = '<span style="color:var(--ok)">&middot; готово</span>';
+          step.querySelector("pre.res").textContent = toolResults[tc.id];
+        }
+      });
+    });
+    s.rendered = true;
+  } finally {
+    historyRendering = false;
+    updateMsgMarks();
+  }
+}
+
+/* ======================= Расходы ======================= */
+const spendSort = { day: { key: "total", dir: -1 }, month: { key: "total", dir: -1 } };
+function fmtRub(v) {
+  let s = (v || 0).toFixed(4);
+  s = s.replace(/0+$/, "").replace(/\.$/, "");
+  return s === "" ? "0" : s;
+}
+function renderSpendTable(el, rows, st) {
+  const cols = [["project", "Проект"], ["model", "Модель"], ["out", "Исходящий"], ["in", "Входящий"], ["total", "Итого"]];
+  let html = "<table class='spend'><thead><tr>" + cols.map(([k, t]) => {
+    const arrow = st.key === k ? (st.dir === 1 ? " ▲" : " ▼") : "";
+    return "<th data-k='" + k + "'>" + t + arrow + "</th>";
+  }).join("") + "</tr></thead><tbody>";
+  if (!rows.length) {
+    html += "<tr><td colspan='5' style='color:var(--muted)'>Нет расходов</td></tr>";
+  }
+  let sum = 0;
+  rows.forEach(r => {
+    sum += r.total;
+    html += "<tr><td>" + escapeHtml(r.project || "—") + "</td><td>" + escapeHtml(r.model || "—") +
+      "</td><td class='num'>" + fmtRub(r.out) + "</td><td class='num'>" + fmtRub(r.in) +
+      "</td><td class='num'>" + fmtRub(r.total) + "</td></tr>";
+  });
+  html += "<tr class='sumrow'><td colspan='4'>ИТОГО</td><td class='num'>" + fmtRub(sum) + "</td></tr></tbody></table>";
+  el.innerHTML = html;
+  el.querySelectorAll("th").forEach(th => {
+    th.onclick = () => {
+      const k = th.dataset.k;
+      if (st.key === k) st.dir *= -1; else { st.key = k; st.dir = 1; }
+      renderSpendTable(el, rows, st);
+    };
+  });
+}
+async function openSpendModal() {
+  $("spend-overlay").style.display = "flex";
+  try {
+    const res = await fetch("/api/spending");
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "нет данных");
+    renderSpendTable($("spend-day").querySelector(".spend-wrap"), data.day, spendSort.day);
+    renderSpendTable($("spend-month").querySelector(".spend-wrap"), data.month, spendSort.month);
+  } catch (e) {
+    $("spend-day").querySelector(".spend-wrap").innerHTML =
+      "<div class='error-box'>Не удалось загрузить расходы: " + escapeHtml(String(e)) + "</div>";
+  }
+}
+function closeSpendModal() { $("spend-overlay").style.display = "none"; }
+$("btn-spend").onclick = openSpendModal;
+$("spend-close").onclick = closeSpendModal;
+overlayCloseGuard($("spend-overlay"), closeSpendModal);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSpendModal(); });
+
+/* ======================= Настройки (шестерёнка) ======================= */
+function openSettingsModal() {
+  ["set-proxy", "set-proxy-user", "set-proxy-pass", "set-api-key"].forEach(id => { $(id).value = ""; });
+  $("settings-error").textContent = "";
+  $("badge-api").style.display = "none";
+  $("badge-pass").style.display = "none";
+  // подтягиваем текущее состояние (секреты в открытом виде не отдаются)
+  fetch("/api/settings").then(r => r.json()).then(d => {
+    if (!d.ok) return;
+    $("set-use-proxy").checked = !!d.use_proxy;
+    if (d.proxy) $("set-proxy").value = d.proxy;
+    if (d.proxy_user) $("set-proxy-user").value = d.proxy_user;
+    $("set-proxy-auth").checked = !!d.proxy_auth;
+    $("set-ssl-verify").checked = d.ssl_verify !== false;
+    $("badge-api").style.display = d.has_api_key ? "" : "none";
+    $("badge-pass").style.display = d.has_proxy_password ? "" : "none";
+    $("set-daily-limit").value = d.daily_limit ? String(d.daily_limit) : "";
+    $("set-stall-timeout").value = d.stream_stall_timeout ? String(d.stream_stall_timeout) : "";
+  $("set-max-iter").value = d.max_iterations ? String(d.max_iterations) : "";
+    syncProxyFields();
+  }).catch(() => {});
+  $("settings-overlay").style.display = "flex";
+  setTimeout(() => $("set-api-key").focus(), 30);
+}
+function syncProxyFields() {
+  const on = $("set-use-proxy").checked;
+  const box = $("proxy-fields");
+  box.style.display = on ? "" : "none";
+  $("set-proxy").disabled = !on;
+  $("set-proxy-auth").disabled = !on;
+  ["set-proxy-user", "set-proxy-pass"].forEach(id => { $(id).disabled = !on; });
+  syncProxyAuth();
+}
+function syncProxyAuth() {
+  const auth = $("set-use-proxy").checked && $("set-proxy-auth").checked;
+  $("proxy-auth-fields").style.display = auth ? "" : "none";
+  $("set-proxy-user").disabled = !auth;
+  $("set-proxy-pass").disabled = !auth;
+}
+$("set-proxy-auth").onchange = syncProxyAuth;
+function closeSettingsModal() { $("settings-overlay").style.display = "none"; }
+$("btn-settings").onclick = openSettingsModal;
+$("settings-close").onclick = closeSettingsModal;
+overlayCloseGuard($("settings-overlay"), closeSettingsModal);
+$("set-use-proxy").onchange = syncProxyFields;
+$("settings-save").onclick = async () => {
+  const vals = {
+    use_proxy: $("set-use-proxy").checked,
+    proxy: $("set-proxy").value.trim(),
+    proxy_auth: $("set-proxy-auth").checked,
+    proxy_user: $("set-proxy-user").value.trim(),
+    proxy_password: $("set-proxy-pass").value,
+    ssl_verify: $("set-ssl-verify").checked,
+    api_key: $("set-api-key").value.trim(),
+    daily_limit: parseFloat(($("set-daily-limit").value || "0").replace(",", ".")) || 0,
+    stream_stall_timeout: parseFloat(($("set-stall-timeout").value || "").replace(",", ".")) || null,
+    max_iterations: parseInt(($("set-max-iter").value || "").replace(",", "."), 10) || null
+  };
+  const btn = $("settings-save");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(vals)
+    });
+    const data = await res.json();
+    if (!data.ok) { $("settings-error").textContent = data.error || "Ошибка сохранения (" + res.status + ")"; return; }
+    closeSettingsModal();
+    if (data.restarting) {
+      $("status").textContent = "Настройки сохранены, сервер перезапускается...";
+      let tries = 0;
+      const wait = setInterval(async () => {
+        tries++;
+        try {
+          await fetch("/");
+          clearInterval(wait);
+          $("status").textContent = "Сервер перезапущен, настройки применены.";
+          loadModels();
+          renderProjects();
+        } catch (e) {
+          if (tries > 30) { clearInterval(wait); $("status").textContent = "Сервер не поднялся — запустите КРАБ заново (ярлык «КРАБ - Запуск» или файл Запуск.bat)."; }
+        }
+      }, 1000);
+    } else {
+      $("status").textContent = "Настройки сохранены и применены.";
+      loadModels();
+    }
+  } catch (e) {
+    $("settings-error").textContent = "Ошибка: " + e;
+  } finally {
+    btn.disabled = false;
+  }
+};
+["set-proxy", "set-proxy-user", "set-proxy-pass", "set-api-key"].forEach(id => {
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("settings-save").click(); } });
+});
+
+/* Проверка связи с Selectel: DNS -> TCP -> HTTPS теми же настройками, что и КРАБ */
+$("net-check").onclick = async () => {
+  const btn = $("net-check"), box = $("net-check-result");
+  btn.disabled = true;
+  box.style.display = "";
+  box.textContent = "Проверяю связь (до ~25 секунд)...";
+  try {
+    const res = await fetch("/api/net-check");
+    const d = await res.json();
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+    const mark = ok => ok ? '<span style="color:#2e9e5b">&#10004;</span>' : '<span style="color:var(--danger,#d33)">&#10008;</span>';
+    box.innerHTML =
+      d.steps.map(s => mark(s.ok) + " <b>" + esc(s.step) + "</b> — " + esc(s.detail)).join("<br>") +
+      '<div style="margin-top:6px;">' + esc(d.verdict || "") + '</div>';
+  } catch (e) {
+    box.textContent = "Не удалось выполнить проверку: " + e;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+/* ======================= Вставка изображений ======================= */
+input.addEventListener("paste", (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const it of items) {
+    if (it.type && it.type.startsWith("image/")) {
+      e.preventDefault();
+      const file = it.getAsFile();
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const res = await fetch("/api/upload_image", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ project: cur().project, data_url: reader.result })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            input.value += (input.value && !input.value.endsWith("\n") ? "\n" : "") +
+              "[Изображение сохранено: " + data.path + "]\n";
+            autosize();
+            $("status").textContent = "Скриншот сохранён: " + data.path;
+          } else {
+            $("status").textContent = "Ошибка сохранения изображения: " + (data.error || res.status);
+          }
+        } catch (err) {
+          $("status").textContent = "Ошибка загрузки изображения: " + err;
+        }
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+  }
+});
+input.addEventListener("input", autosize);
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!cur().streaming) send(); }
+});
+
+/* ======================= Инициализация ======================= */
+(function init() {
+  const sc = session(SCRATCH);
+  sc.model = localStorage.getItem("selagent-model") || "";
+  sc.temperature = parseFloat(localStorage.getItem("selagent-temp") || "0.4") || 0.4;
+  sc.fullAutonomy = localStorage.getItem("selagent-mode") === "full";
+  /* прежняя сборка сама записывала галочки при любом сохранении настроек — её «выключено»
+     могло быть не выбором пользователя: один раз сбрасываем и берём новые умолчания */
+  if (!localStorage.getItem("krab-restrict-migrated")) {
+    localStorage.removeItem("krab-restrict-outside");
+    localStorage.removeItem("krab-auto-code");
+    localStorage.setItem("krab-restrict-migrated", "1");
+  }
+  sc.webAccess = localStorage.getItem("krab-web") === "1";
+  sc.autoCode = localStorage.getItem("krab-auto-code") !== "0";   // по умолчанию включено
+  sc.restrictOutside = localStorage.getItem("krab-restrict-outside") !== "0";   // по умолчанию включена
+  renderTools();
+  applyTempUI(sc);
+  applyModeUI(sc);
+  updateTopbar();
+  loadModels();
+  renderProjects();
+  ensureEmptyHint(sc);
+  showSessionView(sc);
+  const last = localStorage.getItem("selagent-last");
+  if (last && last !== SCRATCH) switchTo(last);
+  input.focus();
+})();
+
+/* ======================= Предупреждение о доступе из сети ======================= */
+fetch("/api/settings").then(r => r.json()).then(d => {
+  if (d && d.lan_exposed) {
+    const w = $("lan-warning");
+    w.textContent = "Внимание: программа открыта для сети (HOST=" + d.bind_host + ") без авторизации. " +
+      "Любой, кто откроет адрес этого компьютера, сможет читать файлы рабочей папки и выполнять код. " +
+      "Чтобы закрыть доступ, укажите HOST=127.0.0.1 в файле bin\\.env и перезапустите программу.";
+    w.style.display = "block";
+  }
+}).catch(() => {});
+
+/* ======================= КРАБ: дополнения ======================= */
+window.krabUsage = function (s, usage) {
+  if (s && usage) s.ctxTokens = (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
+};
+(function () {
+  /* --- окно открыто / закрыто: при закрытии последнего окна сервер останавливается сам --- */
+  const CID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  let fails = 0;
+  async function ping() {
+    try {
+      const r = await fetch("/api/client/ping?id=" + CID, { method: "POST" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      fails = 0;
+      $("offline-overlay").style.display = "none";
+    } catch (e) {
+      if (++fails >= 2) $("offline-overlay").style.display = "flex";
+    }
+  }
+  ping();
+  setInterval(ping, 10000);
+  window.addEventListener("pagehide", () => {
+    try { navigator.sendBeacon("/api/client/close?id=" + CID); } catch (e) {}
+  });
+  $("offline-hide").onclick = () => { $("offline-overlay").style.display = "none"; fails = -30; };
+
+  /* --- галочки «Режима прав»: у каждого чата свои (проект хранит их в project.json,
+         черновик — в localStorage); applyModeUI уже выставил их из состояния сессии --- */
+  const web = $("web-access"), autoCode = $("auto-code"), restrictOut = $("restrict-outside");
+  web.onchange = () => { const s = cur(); s.webAccess = web.checked; persistSettings(s); renderTools(); };
+  autoCode.onchange = () => { const s = cur(); s.autoCode = autoCode.checked; persistSettings(s); renderTools(); };
+  restrictOut.onchange = () => { const s = cur(); s.restrictOutside = restrictOut.checked; persistSettings(s); renderTools(); };
+  renderTools();
+
+  /* --- прикрепить файл / перетащить в окно --- */
+  function addToInput(line) {
+    input.value += (input.value && !input.value.endsWith("\n") ? "\n" : "") + line + "\n";
+    autosize();
+  }
+  function readDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(new Error("не удалось прочитать файл"));
+      r.readAsDataURL(file);
+    });
+  }
+  async function uploadFiles(files) {
+    const s = cur();
+    for (const f of files) {
+      $("status").textContent = "Загрузка: " + f.name + "...";
+      try {
+        const res = await fetch("/api/upload?name=" + encodeURIComponent(f.name) +
+          "&project=" + encodeURIComponent(s.project || ""), { method: "PUT", body: f });
+        const d = await res.json();
+        if (!d.ok) throw new Error(d.error || ("HTTP " + res.status));
+        /* прикреплённая картинка — обычный файл проекта (сжатие проекта её не удаляет);
+           метка «Изображение сохранено» нужна, чтобы её увидела модель с поддержкой изображений */
+        if (/^image\/(png|jpeg|webp|gif)$/.test(f.type) && f.size <= 5 * 1024 * 1024 && !/[\]\n]/.test(d.path)) {
+          addToInput("[Изображение сохранено: " + d.path + "]");
+        } else {
+          addToInput("[Файл добавлен в рабочую папку: " + d.path + "]");
+        }
+        $("status").textContent = "Файл добавлен: " + d.path;
+        if (window.krabDraftChanged) window.krabDraftChanged();
+      } catch (e) {
+        $("status").textContent = "Не удалось загрузить «" + f.name + "»: " + (e.message || e);
+      }
+    }
+    input.focus();
+  }
+  $("btn-attach").onclick = () => $("file-input").click();
+  $("file-input").onchange = (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    if (files.length) uploadFiles(files);
+  };
+  window.addEventListener("dragover", (e) => {
+    if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) e.preventDefault();
+  });
+  window.addEventListener("drop", (e) => {
+    if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    uploadFiles([...e.dataTransfer.files]);
+  });
+
+  /* --- голосовой ввод (если браузер его поддерживает) --- */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const mic = $("btn-mic");
+  if (SR) {
+    mic.style.display = "";
+    let rec = null;
+    mic.onclick = () => {
+      if (rec) { rec.stop(); return; }
+      rec = new SR();
+      rec.lang = "ru-RU";
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (!e.results[i].isFinal) continue;
+          input.value += (input.value && !/\s$/.test(input.value) ? " " : "") + e.results[i][0].transcript.trim();
+          autosize();
+        }
+      };
+      rec.onerror = (e) => {
+        const why = { "network": "служба распознавания браузера не отвечает (возможно, её блокирует прокси)",
+                      "not-allowed": "нет разрешения на микрофон", "service-not-allowed": "распознавание запрещено в этом браузере",
+                      "audio-capture": "микрофон не найден", "no-speech": "речь не услышана" }[e.error] || e.error;
+        $("status").textContent = "Голосовой ввод недоступен: " + why;
+      };
+      rec.onend = () => { rec = null; mic.classList.remove("primary"); };
+      try {
+        rec.start();
+        mic.classList.add("primary");
+        $("status").textContent = "Говорите... Нажмите микрофон ещё раз, чтобы остановить.";
+      } catch (err) { rec = null; }
+    };
+  }
+
+  /* --- экспорт чата в Markdown --- */
+  $("btn-export").onclick = () => {
+    const s = cur();
+    const name = s.project || "Черновой чат";
+    const lines = ["# " + name + " — КРАБ", "", "Экспорт: " + new Date().toLocaleString("ru-RU"), ""];
+    let n = 0;
+    for (const m of s.messages) {
+      if (!m || typeof m.content !== "string" || !m.content.trim()) continue;
+      if (m.role === "user") { lines.push("## Пользователь", "", m.content.trim(), ""); n++; }
+      else if (m.role === "assistant") { lines.push("## КРАБ", "", m.content.trim(), ""); n++; }
+    }
+    if (!n) { $("status").textContent = "Чат пуст — экспортировать нечего."; return; }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "КРАБ " + name.replace(/[\\/:*?"<>|]/g, "_") + " " + new Date().toISOString().slice(0, 10) + ".md";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    $("status").textContent = "Чат сохранён в файл " + a.download + " (папка «Загрузки»).";
+  };
+
+  /* --- индикатор заполнения контекста --- */
+  const kfmt = (n) => n >= 1000 ? Math.round(n / 1000) + "k" : String(n);
+  setInterval(() => {
+    const s = cur(), el = $("ctx-ind");
+    if (!s.ctxTokens) { el.textContent = ""; return; }
+    const m = MODELS.find(x => x.id === s.model);
+    const cw = m && Number(m.context_window);
+    if (cw) {
+      const p = Math.round(s.ctxTokens / cw * 100);
+      el.textContent = "Контекст: " + p + "% (" + kfmt(s.ctxTokens) + " из " + kfmt(cw) + ")";
+      el.style.color = p >= 80 ? "var(--danger)" : "var(--muted)";
+      el.title = p >= 80 ? "Контекст модели почти заполнен: сожмите проект или начните новый чат"
+                         : "Сколько контекста модели занимает текущий чат";
+    } else {
+      el.textContent = "Контекст: " + kfmt(s.ctxTokens) + " токенов";
+      el.style.color = "var(--muted)";
+    }
+  }, 1500);
+
+  /* --- первый запуск: нет ключа --- */
+  const hideWelcome = () => { $("welcome-overlay").style.display = "none"; sessionStorage.setItem("krab-welcome", "1"); };
+  $("welcome-later").onclick = hideWelcome;
+  $("welcome-key").onclick = () => { hideWelcome(); $("btn-settings").click(); };
+  fetch("/api/settings").then(r => r.json()).then(d => {
+    if (d && d.ok && !d.has_api_key && sessionStorage.getItem("krab-welcome") !== "1") $("welcome-overlay").style.display = "flex";
+  }).catch(() => {});
+
+  /* --- версия и обновления --- */
+  const staleServer = () => {
+    const w = $("lan-warning");
+    w.textContent = "Файлы программы обновлены, а работает ещё старая версия. Закройте это окно, запустите «КРАБ - Стоп», затем «КРАБ - Запуск».";
+    w.style.display = "block";
+  };
+  const verEl = $("ver-line");
+  verEl.title = "Проверить обновления";
+  verEl.style.cursor = "pointer";
+  verEl.onclick = () => window.openUpdateDialog && window.openUpdateDialog();
+  fetch("/api/version").then(r => { if (!r.ok) throw new Error("old"); return r.json(); }).then(v => {
+    verEl.textContent = "КРАБ" + (v.version ? " v" + v.version : "");
+    if (v.stale !== false) staleServer();
+  }).catch(staleServer);
+
+  /* проверка обновлений — один раз при запуске: если есть новая версия,
+     окно обновления откроется само; клик по строке версии проверяет вручную */
+  fetch("/api/update/check").then(r => r.json()).then(d => {
+    if (d && d.update_available) {
+      const a = document.createElement("span");
+      a.textContent = " · доступна версия " + d.latest;
+      a.style.color = "var(--accent)";
+      a.onclick = () => window.openUpdateDialog && window.openUpdateDialog();
+      verEl.appendChild(a);
+      setTimeout(() => window.openUpdateDialog && window.openUpdateDialog(), 2500);
+    }
+  }).catch(() => {});
+})();
+
+/* ======================= КРАБ: обновление ======================= */
+(function () {
+  let lastCheck = null;
+  function closeUpdateDialog() { $("update-overlay").style.display = "none"; }
+  overlayCloseGuard($("update-overlay"), closeUpdateDialog);
+  $("update-close").onclick = closeUpdateDialog;
+  $("update-later").onclick = closeUpdateDialog;
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeUpdateDialog(); });
+
+  function openUpdateDialog() {
+    $("update-overlay").style.display = "flex";
+    runUpdateCheck();
+  }
+  window.openUpdateDialog = openUpdateDialog;
+
+  async function runUpdateCheck() {
+    const info = $("update-info"), st = $("update-status");
+    $("update-do").style.display = "none";
+    $("update-open").style.display = "none";
+    lastCheck = null;
+    info.textContent = "Проверяю обновления...";
+    st.textContent = "";
+    try {
+      const r = await fetch("/api/update/check");
+      const d = await r.json();
+      if (!d.ok) { info.textContent = "Не удалось проверить обновления: " + (d.error || r.status); return; }
+      if (d.no_releases) { info.innerHTML = "В репозитории пока нет ни одного релиза — обновлять нечего."; return; }
+      if (!d.update_available) {
+        info.innerHTML = "У вас последняя версия <b>" + escapeHtml(d.version || "") + "</b>.";
+        return;
+      }
+      lastCheck = d;
+      let html = "Текущая версия: <b>" + escapeHtml(d.version || "") + "</b> → доступна <b>" + escapeHtml(d.latest) + "</b>.";
+      if (d.notes) html += '<div style="margin-top:8px; color:var(--muted); white-space:pre-wrap;">' + escapeHtml(d.notes) + "</div>";
+      if (d.tools_required) {
+        html += '<div class="notice" style="margin-top:10px;">В этой версии обновлены встроенные инструменты (Python и/или Tesseract OCR) — лёгкого автообновления недостаточно. Скачайте полный архив со страницы релиза и замените папки <code>bin\\python</code> и <code>bin\\Tesseract-OCR</code> в своей копии программы (папку <code>workspace</code> и файл <code>bin\\.env</code> не трогайте).</div>';
+        $("update-open").style.display = "";
+      } else {
+        $("update-do").style.display = "";
+      }
+      info.innerHTML = html;
+    } catch (e) {
+      info.textContent = "Ошибка проверки обновлений: " + e;
+    }
+  }
+
+  $("update-open").onclick = () => {
+    const url = (lastCheck && lastCheck.release_url) || "";
+    if (/^https:\/\/github\.com\//.test(url)) window.open(url, "_blank", "noopener");
+  };
+
+  $("update-do").onclick = async () => {
+    const st = $("update-status"), btn = $("update-do");
+    if (cur().streaming) { st.textContent = "Дождитесь завершения ответа модели."; return; }
+    btn.disabled = true;
+    st.textContent = "Скачиваю обновление...";
+    try {
+      const r = await fetch("/api/update/apply", { method: "POST" });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || ("HTTP " + r.status));
+      st.textContent = "Обновление скачано. Программа перезапускается...";
+      let tries = 0;
+      const wait = setInterval(async () => {
+        tries++;
+        try { await fetch("/", { cache: "no-store" }); clearInterval(wait); location.reload(); }
+        catch (e) {
+          if (tries > 45) {
+            clearInterval(wait);
+            st.textContent = "Сервер не поднялся — запустите КРАБ ярлыком «КРАБ - Запуск».";
+          }
+        }
+      }, 1000);
+    } catch (e) {
+      st.textContent = "Не удалось обновиться: " + (e.message || e);
+      btn.disabled = false;
+    }
+  };
+})();
+
+/* ======================= КРАБ: черновик ======================= */
+(function () {
+  /* Корень workspace — это черновик. При закрытии программы он очищается (файлы уходят в корзину
+     workspace\.trash на 7 дней, переписка не сохраняется), поэтому перед закрытием спрашиваем. */
+  let draftFiles = 0, skipPrompt = false;
+  async function refreshDraft() {
+    try {
+      const d = await (await fetch("/api/draft")).json();
+      draftFiles = d.files || 0;
+    } catch (e) {}
+  }
+  window.krabDraftChanged = () => setTimeout(refreshDraft, 800);
+  refreshDraft();
+  setInterval(refreshDraft, 10000);
+
+  const draftNotEmpty = () => draftFiles > 0 || session(SCRATCH).messages.length > 0;
+  window.addEventListener("beforeunload", (e) => {
+    if (skipPrompt || !draftNotEmpty()) return;
+    e.preventDefault();
+    e.returnValue = "";
+    /* если пользователь остался в окне — предлагаем сохранить черновик в проект */
+    setTimeout(() => {
+      $("draft-files").textContent = draftFiles > 0 ? "Файлов в черновике: " + draftFiles + "." : "";
+      $("draft-overlay").style.display = "flex";
+    }, 400);
+  });
+  $("draft-save").onclick = () => { $("draft-overlay").style.display = "none"; openProjModal(); };
+  $("draft-cancel").onclick = () => { $("draft-overlay").style.display = "none"; };
+  $("draft-discard").onclick = async () => {
+    skipPrompt = true;
+    $("draft-overlay").style.display = "none";
+    try { await fetch("/api/draft/clear", { method: "POST" }); draftFiles = 0; } catch (e) {}
+    window.close();
+    setTimeout(() => { $("status").textContent = "Теперь окно можно закрыть крестиком — вопрос больше не появится."; }, 500);
+  };
+})();
+</script>
+</body>
+</html>
