@@ -45,6 +45,9 @@ class ToolError(Exception):
 # Это делает одновременную работу нескольких проектов потокобезопасной.
 
 
+DRAFT_DIR = ".draft"   # служебная папка чернового чата внутри workspace
+
+
 def base_workspace_path():
     """Корень workspace: по умолчанию <корень программы>\\workspace.
     Относительный WORKSPACE_DIR из .env отсчитывается от корня программы."""
@@ -56,13 +59,22 @@ def base_workspace_path():
     return ws
 
 
+def draft_path():
+    """Служебная папка черновика: workspace\\.draft.
+    У чернового чата (без проекта) она своя: модель видит только её,
+    папки проектов из черновика недоступны."""
+    d = os.path.realpath(os.path.join(base_workspace_path(), DRAFT_DIR))
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def _workspace(p=None):
-    """Рабочая папка инструментов: корень проекта (если задан) или весь workspace."""
+    """Рабочая папка инструментов: корень проекта (если задан) или папка черновика .draft."""
     if p:
         ws = os.path.realpath(os.path.join(base_workspace_path(), p))
         os.makedirs(ws, exist_ok=True)
         return ws
-    return base_workspace_path()
+    return draft_path()
 
 
 # ---------------------------------------------------------------------------

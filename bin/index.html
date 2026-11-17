@@ -308,6 +308,24 @@ details.step .sbody { padding: 0 12px 10px; }
 details.step pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; overflow-x: auto; font-size: 12px; max-height: 340px; overflow-y: auto; margin: 6px 0; }
 .step-tag { color: var(--accent); font-weight: 600; }
 .step-pending { color: var(--muted); font-style: italic; }
+/* --- рассуждения: сворачиваемый блок, остаётся в переписке --- */
+details.reason {
+  border: 1px dashed var(--border); border-radius: 10px; margin: 10px 0;
+  background: var(--card); font-size: 12.5px;
+}
+details.reason > summary {
+  cursor: pointer; padding: 7px 12px; color: var(--muted); font-style: italic;
+  user-select: none; font-size: 12.5px; list-style: none;
+}
+details.reason > summary::before { content: "\25b8  "; }
+details.reason[open] > summary::before { content: "\25be  "; }
+details.reason .reason-body {
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; overflow-x: auto; overflow-y: auto; max-height: 340px;
+  font-size: 12px; line-height: 1.5; margin: 0 12px 10px; white-space: pre-wrap;
+  font-family: Consolas, "Cascadia Mono", monospace; color: var(--muted);
+}
+.reason-count { color: var(--muted); }
 /* --- подтверждение выполнения кода --- */
 .code-confirm { margin: 8px 0; }
 .confirm-ask { font-size: 13px; font-weight: 600; margin: 4px 0; }
@@ -550,8 +568,9 @@ details.step pre { background: var(--code-bg); border: 1px solid var(--border); 
 <div id="draft-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:65; align-items:center; justify-content:center;">
   <div style="background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:14px; max-width:520px; width:92%; padding:20px 24px; font-size:14px; line-height:1.55;">
     <div style="font-size:17px; font-weight:600; margin-bottom:6px;">Сохранить черновик?</div>
-    <div>В черновике есть переписка или файлы. При закрытии программы черновик очищается: переписка не сохраняется,
-      а файлы переносятся в корзину <code>workspace\.trash</code> и через 7 дней удаляются окончательно.</div>
+    <div>В черновике есть переписка или файлы. При закрытии программы и «Новый чат» папка черновика
+      (<code>workspace\.draft</code>) очищается: переписка не сохраняется, а файлы переносятся в корзину
+      <code>workspace\.trash</code> и через 7 дней удаляются окончательно.</div>
     <div id="draft-files" style="color:var(--muted); font-size:12.5px; margin-top:6px;"></div>
     <div style="margin-top:6px;">Чтобы продолжить работу позже, сохраните черновик в проект — переписка и все файлы черновика перейдут в его папку.</div>
     <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
@@ -917,7 +936,8 @@ function newTurn(s) {
   v.appendChild(turn);
   if (currentKey === s.key) scrollDown();
   const t = { s, turn, agent, textEl: null, textBuf: "", cost: 0, touched: false, capped: false,
-              reasoningLen: 0, thinkStart: 0, lastPing: 0, gotDone: false, terminated: false, stallWarned: false };
+              reasoningLen: 0, reasonBuf: "", reasonEl: null, reasonTimer: 0, thinkStart: 0, lastPing: 0,
+              gotDone: false, terminated: false, stallWarned: false };
   return t;
 }
 function showThinking(t) {
@@ -933,6 +953,38 @@ function showThinking(t) {
 }
 function hideThinking(t) {
   if (t.agent) { const th = t.agent.querySelector(".thinking"); if (th) th.remove(); }
+}
+/* --- Рассуждения: сворачиваемый блок (остаётся в переписке после завершения хода) --- */
+function reasonFlush(t) {
+  t.reasonTimer = 0;
+  if (!t.reasonEl) return;
+  const body = t.reasonEl.querySelector(".reason-body");
+  if (body) body.textContent = t.reasonBuf;   // textContent — без HTML-инъекций из вывода модели
+  const cnt = t.reasonEl.querySelector(".reason-count");
+  if (cnt) cnt.textContent = t.reasoningLen ? "\u00b7 " + t.reasoningLen + " симв." : "";
+}
+function reasonFinalize(t) {
+  /* досыпаем буфер и «запечатываем» блок: следующая порция рассуждений откроет новый */
+  if (t.reasonTimer) { clearTimeout(t.reasonTimer); t.reasonTimer = 0; }
+  if (t.reasonEl) reasonFlush(t);
+  t.reasonEl = null; t.reasonBuf = "";
+}
+function reasonAdd(t, chunk) {
+  if (!chunk || !t.agent) return;
+  if (!t.reasonEl) {
+    const d = document.createElement("details");
+    d.className = "reason";
+    d.innerHTML = '<summary><span class="reason-tag">\u{1F9E0} Размышления модели</span> <span class="reason-count"></span></summary>' +
+                  '<pre class="reason-body"></pre>';
+    t.agent.appendChild(d);
+    t.reasonEl = d;
+    if (currentKey === t.s.key) scrollDown();
+  }
+  if (t.reasonBuf.length <= 200000) t.reasonBuf += chunk;
+  t.reasoningLen = (t.reasoningLen || 0) + chunk.length;
+  const cnt = t.reasonEl.querySelector(".reason-count");
+  if (cnt) cnt.textContent = "\u00b7 " + t.reasoningLen + " симв.";
+  if (!t.reasonTimer) t.reasonTimer = setTimeout(() => reasonFlush(t), 250);   // DOM обновляем пореже
 }
 function startTextBlock(t) {
   if (!t.textEl) {
@@ -961,12 +1013,53 @@ function finalizeTextBlock(t) {
   t.textEl.innerHTML = mdToHtml(t.textBuf);
   t.rawNode = null;
 }
+/* Человекочитаемые подписи шагов: имя инструмента -> [метка, деталь]. Неизвестный инструмент — null (общий вид). */
+function toolTitle(name, argsJson) {
+  let a = {};
+  try { a = JSON.parse(argsJson) || {}; } catch (e) {}
+  const val = (v, n) => {
+    const s = String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+    return s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
+  };
+  switch (name) {
+    case "list_workspace_files": return ["Просмотр файлов", a.subpath ? val(a.subpath, 60) : ""];
+    case "search_in_files": return ["Поиск", "\u00ab" + val(a.query, 50) + "\u00bb"];
+    case "read_text_file": return ["Чтение файла", val(a.filepath, 60)];
+    case "read_docx": return ["Чтение Word", val(a.filepath, 60)];
+    case "read_xlsx": return ["Чтение Excel", val(a.filepath, 60) + (a.sheet_name ? " \u00b7 лист " + val(a.sheet_name, 20) : "")];
+    case "read_pdf": return ["Чтение PDF", val(a.filepath, 60)];
+    case "read_pptx": return ["Чтение презентации", val(a.filepath, 60)];
+    case "read_email": return ["Чтение письма", val(a.filepath, 60)];
+    case "ocr_file": return ["OCR-распознавание", val(a.filepath, 60)];
+    case "get_current_time": return ["Дата и время", ""];
+    case "calculate": return ["Расчёт", val(a.expression, 60)];
+    case "write_text_file": return [a.mode === "append" ? "Дозапись в файл" : "Запись файла", val(a.filepath, 60)];
+    case "create_docx": return ["Создание Word", val(a.filepath, 60)];
+    case "create_or_update_xlsx": return ["Создание Excel", val(a.filepath, 60)];
+    case "create_pptx": return ["Создание презентации", val(a.filepath, 60)];
+    case "manage_files": {
+      const acts = { copy: "Копирование", move: "Перемещение", rename: "Переименование",
+                     mkdir: "Создание папки", delete: "Удаление" };
+      return [acts[a.action] || ("Файлы: " + val(a.action, 20)), val(a.source, 60)];
+    }
+    case "run_python_snippet": {
+      const first = String(a.code || "").split("\n").map(x => x.trim()).find(Boolean) || "";
+      return ["Код Python", val(first, 60)];
+    }
+    case "fetch_url": return ["Открытие страницы", val(a.url, 60)];
+  }
+  return null;
+}
 function addStep(t, name, argsJson) {
   const d = document.createElement("details");
   d.className = "step";
   let pretty = "";
   try { pretty = JSON.stringify(JSON.parse(argsJson), null, 2); } catch (e) { pretty = argsJson; }
-  d.innerHTML = '<summary><span class="step-tag">Инструмент:</span> ' + escapeHtml(name) +
+  const tt = toolTitle(name, argsJson);
+  const head = tt
+    ? '<span class="step-tag">' + escapeHtml(tt[0]) + ":</span> " + (tt[1] ? escapeHtml(tt[1]) : "\u2014")
+    : '<span class="step-tag">Инструмент:</span> ' + escapeHtml(name);
+  d.innerHTML = "<summary" + (tt ? ' title="' + escapeHtml(name) + '"' : "") + ">" + head +
     ' <span class="step-pending">&middot; выполняется...</span></summary>' +
     '<div class="sbody"><div>Аргументы:</div><pre>' + escapeHtml(pretty) + '</pre><div>Результат:</div><pre class="res">...</pre></div>';
   t.agent.appendChild(d);
@@ -986,6 +1079,7 @@ function handleSse(t, ev, data) {
   if (t.stallWarned) clearStall(t);
   if (ev === "iteration") {
     finalizeTextBlock(t);
+    reasonFinalize(t);   // новая итерация — новый блок рассуждений
     t.textEl = null; t.textBuf = ""; t.capped = false;
     t.reasoningLen = 0;
     showThinking(t);
@@ -1015,11 +1109,13 @@ function handleSse(t, ev, data) {
     const lb = t.agent && t.agent.querySelector(".thinking .think-label");
     if (lb) lb.textContent = "Размышляет (скрытые рассуждения)";
     const ex = t.agent && t.agent.querySelector(".thinking .think-extra");
-    if (ex) ex.textContent = " \u00b7 " + t.reasoningLen + " \u0441\u0438\u043c\u0432.";
+    if (ex) ex.textContent = " \u00b7 " + t.reasoningLen + " симв.";
+    reasonAdd(t, data && data.content);   // копим текст для сворачиваемого блока рассуждений
     return;
   }
   if (ev === "text") {
     hideThinking(t);
+    reasonFinalize(t);
     t.touched = true;
     startTextBlock(t);
     streamText(t, data.content);
@@ -1029,6 +1125,7 @@ function handleSse(t, ev, data) {
   if (ev === "tool_start") {
     finalizeTextBlock(t);
     hideThinking(t);
+    reasonFinalize(t);
     t.touched = true;
     t.textEl = null;
     addStep(t, data.name, data.arguments);
@@ -1111,6 +1208,7 @@ function handleSse(t, ev, data) {
   }
   if (ev === "error") {
     hideThinking(t);
+    reasonFinalize(t);
     const n = document.createElement("div");
     n.className = "error-box"; n.textContent = "Ошибка: " + data.message;
     t.agent.appendChild(n);
@@ -1120,6 +1218,7 @@ function handleSse(t, ev, data) {
   if (ev === "done") {
     t.gotDone = true;
     finalizeTextBlock(t);
+    reasonFinalize(t);
     hideThinking(t);
     t.s.messages.push(...(data.messages || []));
     const cost = (typeof data.cost_total === "number" && data.cost_total > 0) ? data.cost_total : t.cost;
@@ -1286,28 +1385,9 @@ $("btn-send").onclick = () => {
 };
 
 $("btn-new").onclick = () => {
-  const oldScratch = session(SCRATCH);
-  if (oldScratch.streaming && oldScratch.controller) oldScratch.controller.abort();
-  const oldView = chat.querySelector('.session-view[data-key="' + SCRATCH + '"]');
-  if (oldView) oldView.remove();
-  sessions.delete(SCRATCH);
-  currentKey = SCRATCH;
-  localStorage.setItem("selagent-last", SCRATCH);
-  const sc = session(SCRATCH);
-  sc.model = localStorage.getItem("selagent-model") || "";
-  sc.temperature = parseFloat(localStorage.getItem("selagent-temp") || "0.4") || 0.4;
-  sc.fullAutonomy = localStorage.getItem("selagent-mode") === "full";
-  sc.webAccess = localStorage.getItem("krab-web") === "1";
-  sc.autoCode = localStorage.getItem("krab-auto-code") !== "0";
-  sc.restrictOutside = localStorage.getItem("krab-restrict-outside") !== "0";   // по умолчанию включена
-  showSessionView(sc);
-  syncModelUI(sc);
-  renderTools();
-  applyTempUI(sc);
-  applyModeUI(sc);
-  updateTopbar();
-  renderProjects();
-  ensureEmptyHint(sc);
+  /* логика в секции «черновик» (ниже): если в черновике есть файлы/переписка —
+     сначала предлагаем сохранить их в проект, потом начинаем чистый чат */
+  if (window.krabNewChat) window.krabNewChat();
 };
 
 /* ======================= Сворачиваемые панели ======================= */
@@ -1344,6 +1424,12 @@ function fillModelSelect(models) {
   updateModelDdLabel();
 }
 function isPinned(id) { return PINNED.includes(id); }
+function defaultModelId() {
+  /* модель по умолчанию для новых чатов/проектов: первая из избранных (сортировка как в списке);
+     если избранных нет — "" (пусть решает вызывающий: серверный default или первая из списка) */
+  const firstPinned = MODELS.filter(m => isPinned(m.id)).sort(byModelName)[0];
+  return firstPinned ? firstPinned.id : "";
+}
 
 function buildModelList() {
   const list = $("model-dd-list");
@@ -1480,7 +1566,7 @@ function syncModelUI(s) {
   if (modelInfo(s.model)) {
     custom.style.display = "none";
   } else if (!s.model && MODELS.length) {
-    s.model = [...MODELS].sort(byModelName)[0].id;   // как раньше: первая модель списка
+    s.model = defaultModelId() || [...MODELS].sort(byModelName)[0].id;   // первая из избранных, иначе первая списка
     custom.style.display = "none";
   } else {
     custom.style.display = "";
@@ -1495,7 +1581,7 @@ async function loadModels() {
     const res = await fetch("/api/models");
     const data = await res.json();
     fillModelSelect(data.models);
-    if (!cur().model && data.default_model) cur().model = data.default_model;
+    if (!cur().model) cur().model = defaultModelId() || data.default_model || "";   // избранные важнее серверного умолчания
     syncModelUI(cur());
     persistSettings(cur());
     updateTopbar();
@@ -2444,9 +2530,10 @@ window.krabUsage = function (s, usage) {
 
 /* ======================= КРАБ: черновик ======================= */
 (function () {
-  /* Корень workspace — это черновик. При закрытии программы он очищается (файлы уходят в корзину
-     workspace\.trash на 7 дней, переписка не сохраняется), поэтому перед закрытием спрашиваем. */
-  let draftFiles = 0, skipPrompt = false;
+  /* У черновика своя служебная папка workspace\.draft. «Новый чат» и закрытие программы
+     очищают её (файлы уходят в корзину workspace\.trash на 7 дней, переписка не сохраняется),
+     «Сохранить в проект» переносит всё содержимое в папку проекта. Перед очисткой спрашиваем. */
+  let draftFiles = 0, skipPrompt = false, pendingNewChat = false;
   async function refreshDraft() {
     try {
       const d = await (await fetch("/api/draft")).json();
@@ -2458,22 +2545,65 @@ window.krabUsage = function (s, usage) {
   setInterval(refreshDraft, 10000);
 
   const draftNotEmpty = () => draftFiles > 0 || session(SCRATCH).messages.length > 0;
+
+  function resetScratchChat() {
+    const oldScratch = session(SCRATCH);
+    if (oldScratch.streaming && oldScratch.controller) oldScratch.controller.abort();
+    const oldView = chat.querySelector('.session-view[data-key="' + SCRATCH + '"]');
+    if (oldView) oldView.remove();
+    sessions.delete(SCRATCH);
+    currentKey = SCRATCH;
+    localStorage.setItem("selagent-last", SCRATCH);
+    const sc = session(SCRATCH);
+    sc.model = localStorage.getItem("selagent-model") || "";
+    sc.temperature = parseFloat(localStorage.getItem("selagent-temp") || "0.4") || 0.4;
+    sc.fullAutonomy = localStorage.getItem("selagent-mode") === "full";
+    sc.webAccess = localStorage.getItem("krab-web") === "1";
+    sc.autoCode = localStorage.getItem("krab-auto-code") !== "0";
+    sc.restrictOutside = localStorage.getItem("krab-restrict-outside") !== "0";   // по умолчанию включена
+    showSessionView(sc);
+    syncModelUI(sc);
+    renderTools();
+    applyTempUI(sc);
+    applyModeUI(sc);
+    updateTopbar();
+    renderProjects();
+    ensureEmptyHint(sc);
+  }
+
+  window.krabNewChat = () => {
+    if (draftNotEmpty()) {   // сначала решаем судьбу папки черновика
+      pendingNewChat = true;
+      $("draft-files").textContent = draftFiles > 0 ? "Файлов в черновике: " + draftFiles + "." : "";
+      $("draft-overlay").style.display = "flex";
+      return;
+    }
+    resetScratchChat();
+  };
+
   window.addEventListener("beforeunload", (e) => {
     if (skipPrompt || !draftNotEmpty()) return;
     e.preventDefault();
     e.returnValue = "";
     /* если пользователь остался в окне — предлагаем сохранить черновик в проект */
     setTimeout(() => {
+      pendingNewChat = false;   // оверлей открыт из-за закрытия окна, а не «Новый чат»
       $("draft-files").textContent = draftFiles > 0 ? "Файлов в черновике: " + draftFiles + "." : "";
       $("draft-overlay").style.display = "flex";
     }, 400);
   });
   $("draft-save").onclick = () => { $("draft-overlay").style.display = "none"; openProjModal(); };
-  $("draft-cancel").onclick = () => { $("draft-overlay").style.display = "none"; };
+  $("draft-cancel").onclick = () => { $("draft-overlay").style.display = "none"; pendingNewChat = false; };
   $("draft-discard").onclick = async () => {
     skipPrompt = true;
     $("draft-overlay").style.display = "none";
     try { await fetch("/api/draft/clear", { method: "POST" }); draftFiles = 0; } catch (e) {}
+    if (pendingNewChat) {   // «Новый чат» с очисткой: начинаем чистый черновик, окно не закрываем
+      pendingNewChat = false;
+      resetScratchChat();
+      $("status").textContent = "Черновик очищен: начат новый чат.";
+      return;
+    }
     window.close();
     setTimeout(() => { $("status").textContent = "Теперь окно можно закрыть крестиком — вопрос больше не появится."; }, 500);
   };

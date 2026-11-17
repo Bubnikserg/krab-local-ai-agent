@@ -25,8 +25,8 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path $stage | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stage "bin") | Out-Null
 
-# root files: everything except user data, binaries and build outputs
-$skipRoot = @("workspace", "docs", "bin", ".git")
+# root files: everything except user data, binaries, build outputs and this script
+$skipRoot = @("workspace", "docs", "bin", ".git", "build_release.ps1")
 Get-ChildItem -LiteralPath $root -Force -File | Where-Object {
     $n = $_.Name
     ($skipRoot -notcontains $n) -and

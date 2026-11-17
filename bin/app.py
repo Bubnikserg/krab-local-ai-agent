@@ -497,8 +497,8 @@ _archive_old_months()
 
 
 def _cleanup_tmp_images(max_age_days=7):
-    """Скриншоты чернового чата (workspace\\.tmp_images) старше недели удаляются при старте."""
-    d = os.path.join(tools.base_workspace_path(), ".tmp_images")
+    """Вставленные в чат скриншоты (workspace\\.draft\\.tmp_images) старше недели удаляются при старте."""
+    d = os.path.join(tools.draft_path(), ".tmp_images")   # = SCREENSHOT_DIR (объявлен ниже)
     if not os.path.isdir(d):
         return
     limit, n = time.time() - max_age_days * 86400, 0
@@ -788,9 +788,9 @@ async def _download_media(url):
 
 
 def _media_save(kind, data_bytes, ext, project):
-    """Сохраняет медиа-файл в image/ или video/ проекта (или workspace), -> (путь, относительный путь)."""
+    """Сохраняет медиа-файл в image/ или video/ проекта (или черновика .draft), -> (путь, относительный путь)."""
     sub = "image" if kind == "image" else "video"
-    base = project_dir(project) if project else tools.base_workspace_path()
+    base = project_dir(project) if project else tools.draft_path()
     d = os.path.join(base, sub)
     os.makedirs(d, exist_ok=True)
     fname = "%s_%s_%s.%s" % ("img" if kind == "image" else "video",
@@ -814,7 +814,7 @@ def _attach_images(history, project, max_images=4, max_bytes=5 * 1024 * 1024):
     """Для моделей с входом «image»: скриншоты, вставленные в чат (метка
     «[Изображение сохранено: путь]»), прикладываются к сообщению как image_url.
     Берутся не более max_images самых свежих — каждая картинка стоит токенов."""
-    base = project_dir(project) if project else tools.base_workspace_path()
+    base = project_dir(project) if project else tools.draft_path()
     out, left = list(history), max_images
     for idx in range(len(out) - 1, -1, -1):
         if left <= 0:
@@ -997,28 +997,31 @@ async def _run_media_generation(client, model, kind, prompt, project, full_histo
 
 
 # ---------------------------------------------------------------------------
-# Черновик. Корень workspace — это черновой чат без проекта: файлы, лежащие прямо в корне,
-# и скриншоты в .tmp_images. Папки в workspace — это проекты, их черновик НЕ касается.
-#  - «Сохранить в проект»: всё из черновика переносится в папку нового проекта.
-#  - Закрытие программы (последнее окно или ярлык «КРАБ - Стоп»): черновик переносится в workspace/.trash/<дата_время>/
-#    и окончательно удаляется через 7 дней (при запуске программы).
+# Черновик. У чернового чата (без проекта) своя служебная папка workspace\.draft:
+# в ней лежат пользовательские файлы, скриншоты (.draft\.tmp_images) и сгенерированные
+# медиа (.draft\image, .draft\video). Модель в черновике видит только эту папку —
+# папки проектов ей недоступны (песочница инструментов = .draft).
+#  - «Сохранить в проект»: всё содержимое .draft переносится в папку нового проекта.
+#  - «Новый чат» и закрытие программы (последнее окно или ярлык «КРАБ - Стоп»): .draft
+#    переносится в workspace/.trash/<дата_время>/ и окончательно удаляется через 7 дней
+#    (при запуске программы).
 # ---------------------------------------------------------------------------
 SCREENSHOT_DIR = ".tmp_images"   # скриншоты, вставленные в чат: и в черновике, и в проектах
 _DRAFT_SKIP_FILES = {"thumbs.db", "desktop.ini"}
 
 
 def _draft_files():
-    """(файлы в корне workspace, файлы в workspace/.tmp_images) — только файлы, без папок проектов."""
-    ws = tools.base_workspace_path()
-    root_files, shots = [], []
-    for n in os.listdir(ws):
-        p = os.path.join(ws, n)
-        if os.path.isfile(p) and not n.startswith(".") and n.lower() not in _DRAFT_SKIP_FILES:
-            root_files.append(p)
-    tmp = os.path.join(ws, SCREENSHOT_DIR)
-    if os.path.isdir(tmp):
-        shots = [os.path.join(tmp, n) for n in os.listdir(tmp) if os.path.isfile(os.path.join(tmp, n))]
-    return root_files, shots
+    """Все файлы черновика (workspace\\.draft) рекурсивно — только файлы, без служебного мусора.
+    Скрытую папку .tmp_images не пропускаем — это скриншоты черновика."""
+    d = tools.draft_path()
+    out = []
+    for dirpath, dirnames, filenames in os.walk(d):
+        dirnames[:] = sorted(dirnames)
+        for n in sorted(filenames):
+            if n.startswith(".") or n.lower() in _DRAFT_SKIP_FILES:
+                continue
+            out.append(os.path.join(dirpath, n))
+    return out
 
 
 def _move_unique(src, dst_dir):
@@ -1032,23 +1035,33 @@ def _move_unique(src, dst_dir):
     return dst
 
 
+def _remove_draft_dir():
+    """Удаляет папку черновика целиком (после переноса файлов)."""
+    d = os.path.realpath(os.path.join(tools.base_workspace_path(), tools.DRAFT_DIR))
+    shutil.rmtree(d, ignore_errors=True)
+
+
 def _move_draft_to(dst_dir):
-    """Переносит весь черновик в папку dst_dir (проект или корзина). Возвращает число файлов."""
-    root_files, shots = _draft_files()
+    """Переносит весь черновик (workspace\\.draft) в dst_dir, сохраняя структуру папок:
+    скриншоты — в .tmp_images, медиа — в image/ и video/, остальное — как лежало.
+    Возвращает число файлов."""
+    draft = tools.draft_path()
     n = 0
-    for src, sub in [(f, "") for f in root_files] + [(f, SCREENSHOT_DIR) for f in shots]:
+    for src in _draft_files():
+        rel = os.path.relpath(src, draft)
+        sub = os.path.dirname(rel)
         try:
             _move_unique(src, os.path.join(dst_dir, sub) if sub else dst_dir)
             n += 1
         except OSError:
             log.exception("черновик: не удалось перенести %s", src)
+    _remove_draft_dir()
     return n
 
 
 def _trash_draft():
-    """Очистка черновика при закрытии программы: в workspace/.trash/<дата_время>/."""
-    root_files, shots = _draft_files()
-    if not root_files and not shots:
+    """Очистка черновика («Новый чат», закрытие программы): в workspace/.trash/<дата_время>/."""
+    if not _draft_files():
         return 0
     dst = os.path.join(tools.base_workspace_path(), ".trash", datetime.now().strftime("%Y%m%d_%H%M%S"))
     n = _move_draft_to(dst)
@@ -1072,11 +1085,45 @@ def _purge_draft_trash(max_age_days=7):
             log.exception("корзина черновика: не удалось удалить %s", p)
 
 
+def _migrate_legacy_draft():
+    """Раньше черновик жил в корне workspace (+ workspace\\.tmp_images). При старте
+    переносим эти файлы в новую папку workspace\\.draft, чтобы черновик был один."""
+    ws = tools.base_workspace_path()
+    d = tools.draft_path()
+    moved = 0
+    for n in os.listdir(ws):
+        p = os.path.join(ws, n)
+        if os.path.isfile(p) and not n.startswith(".") and n.lower() not in _DRAFT_SKIP_FILES:
+            try:
+                _move_unique(p, d)
+                moved += 1
+            except OSError:
+                log.exception("черновик: не удалось перенести %s", p)
+    old_tmp = os.path.join(ws, SCREENSHOT_DIR)
+    if os.path.isdir(old_tmp):
+        for n in os.listdir(old_tmp):
+            p = os.path.join(old_tmp, n)
+            if os.path.isfile(p):
+                try:
+                    _move_unique(p, os.path.join(d, SCREENSHOT_DIR))
+                    moved += 1
+                except OSError:
+                    log.exception("черновик: не удалось перенести %s", p)
+        try:
+            os.rmdir(old_tmp)
+        except OSError:
+            pass
+    if moved:
+        log.info("черновик: %d файл(ов) из корня workspace перенесено в %s", moved, d)
+
+
+_migrate_legacy_draft()
 _purge_draft_trash()
 
 @app.post("/api/draft/clear")
 def clear_draft():
-    """«Закрыть без сохранения»: черновик уходит в корзину сразу, не дожидаясь остановки сервера."""
+    """«Закрыть без сохранения» / очистка при «Новый чат»: черновик уходит в корзину сразу,
+    не дожидаясь остановки сервера."""
     try:
         return {"ok": True, "moved": _trash_draft()}
     except Exception as e:
@@ -1086,8 +1133,7 @@ def clear_draft():
 
 @app.get("/api/draft")
 def get_draft():
-    root_files, shots = _draft_files()
-    return {"ok": True, "files": len(root_files) + len(shots)}
+    return {"ok": True, "files": len(_draft_files())}
 
 
 # ---------------------------------------------------------------------------
@@ -1134,10 +1180,15 @@ def _system_prompt(base_ws, project):
                          "в служебной папке .tmp_images проекта (в списке файлов она не показывается); "
                          "их пути указаны в его сообщениях.")
     else:
-        workspace_section = ("- Все файлы пользователя лежат в выделенной рабочей папке: %s\n"
-                             "- Ты видишь только эту папку и работаешь строго в её пределах." % base_ws)
+        workspace_section = (
+            "- Это черновой чат без проекта. Все его файлы лежат в выделенной временной папке черновика: %s\n"
+            "- Ты видишь только эту папку и работаешь строго в её пределах; папки проектов тебе недоступны.\n"
+            "- Папка временная: при «Сохранить в проект» её содержимое переедет в папку нового проекта, "
+            "а при очистке черновика («Новый чат», закрытие программы) файлы будут удалены." % tools.draft_path()
+        )
         image_section = ("- Скриншоты/изображения, вставленные пользователем в чат, сохранены в служебной "
-                         "папке .tmp_images (в списке файлов она не показывается); их пути указаны в его сообщениях.")
+                         "папке .tmp_images внутри папки черновика (в списке файлов она не показывается); "
+                         "их пути указаны в его сообщениях.")
     return SYSTEM_PROMPT.format(
         workspace_section=workspace_section,
         image_section=image_section,
@@ -2026,7 +2077,7 @@ async def upload_file(request: Request, name: str = "", project: str = ""):
             return JSONResponse(status_code=404, content={"ok": False, "error": "Проект не найден"})
         base = project_dir(pname)
     else:
-        base = tools.base_workspace_path()
+        base = tools.draft_path()   # прикреплённые файлы черновика — в его папку .draft
     try:
         max_mb = max(1.0, float(os.getenv("UPLOAD_MAX_MB", "200") or 200))
     except ValueError:
@@ -2765,7 +2816,7 @@ def upload_image(req: ImageRequest):
         img_dir = os.path.join(project_dir(name), SCREENSHOT_DIR)
         rel_dir = SCREENSHOT_DIR
     else:
-        img_dir = os.path.join(tools.base_workspace_path(), ".tmp_images")
+        img_dir = os.path.join(tools.draft_path(), SCREENSHOT_DIR)   # скрины черновика — в .draft\.tmp_images
         rel_dir = ".tmp_images"
     try:
         os.makedirs(img_dir, exist_ok=True)
@@ -2790,7 +2841,7 @@ def get_workspace_file(path: str = "", project: str = ""):
     if not rel:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Не указан path"})
     name = valid_project_name(project) if project else ""
-    base = project_dir(name) if name else tools.base_workspace_path()
+    base = project_dir(name) if name else tools.draft_path()
     if not base:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Недопустимое имя проекта"})
     full = os.path.realpath(os.path.join(base, rel))
