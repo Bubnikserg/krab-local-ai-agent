@@ -2,12 +2,13 @@
 # Usage (from the program folder):
 #   powershell -ExecutionPolicy Bypass -File build_release.ps1                 # code-only update
 #   powershell -ExecutionPolicy Bypass -File build_release.ps1 -ToolsUpdated   # python/Tesseract changed
+#   powershell -ExecutionPolicy Bypass -File build_release.ps1 -Notes "..."    # set release notes
 #
 # Produces in the program folder (these three files are attached to the GitHub Release):
 #   KRAB-update.zip               - code only (light auto-update)
 #   KRAB-<version>-windows-x64.zip - full archive (code + python + Tesseract)
 #   update.json                   - release manifest for the updater
-param([switch]$ToolsUpdated)
+param([switch]$ToolsUpdated, [string]$Notes = "")
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -52,14 +53,21 @@ $fullZip = Join-Path $root ("KRAB-" + $ver + "-windows-x64.zip")
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $fullZip -Force
 Write-Host ("  " + $fullZip)
 
-# --- manifest for the release assets ---
+# --- manifest for the release assets (notes: from -Notes or kept from the existing manifest) ---
+$oldNotes = ""
+try {
+    $old = Get-Content -LiteralPath (Join-Path $root "update.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($old.notes) { $oldNotes = [string]$old.notes }
+} catch { }
+if (-not $Notes) { $Notes = $oldNotes }
 $manifest = @{
     version       = $ver
     tools_updated = [bool]$ToolsUpdated
-    notes         = ""
+    notes         = $Notes
 }
 $manifestPath = Join-Path $root "update.json"
-$manifest | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+# UTF-8 без BOM: json.loads на манифесте с BOM падает (PS 5.1 Set-Content -Encoding UTF8 пишет BOM)
+[System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
 Write-Host ("  " + $manifestPath)
 
 Remove-Item $stage -Recurse -Force

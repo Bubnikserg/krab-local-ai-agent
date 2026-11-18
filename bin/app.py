@@ -90,7 +90,6 @@ def _code_stamp():
 _CODE_STAMP_AT_START = _code_stamp()
 DEFAULT_PORT = "38573"  # порт по умолчанию; то же значение в run_hidden.vbs, run.bat, stop.bat, open_ui.ps1
 STREAM_STALL_TIMEOUT_DEFAULT = 180  # сек тишины потока модели до разрыва (STREAM_STALL_TIMEOUT)
-MAX_ITERATIONS_DEFAULT = 30  # максимум шагов «модель -> инструмент» за один запрос (MAX_ITERATIONS)
 
 app = FastAPI(title="КРАБ")
 
@@ -222,7 +221,6 @@ class SettingsSaveRequest(BaseModel):
     api_key: str = ""
     daily_limit: float | None = None  # руб. в день; 0 — без лимита; None — не менять
     stream_stall_timeout: float | None = None  # сек тишины потока модели; None — не менять
-    max_iterations: int | None = None  # лимит шагов за запрос; None — не менять
 
 
 def _update_env_file(updates):
@@ -258,7 +256,6 @@ def get_settings():
         "has_proxy_password": bool(_secrets["proxy_password"]),
         "daily_limit": _daily_limit(),
         "stream_stall_timeout": _stream_stall_timeout(),
-        "max_iterations": _max_iterations(),
         "lan_exposed": lan_exposed(),
         "bind_host": _bind_host(),
     }
@@ -308,9 +305,6 @@ def save_settings(req: SettingsSaveRequest):
         if req.stream_stall_timeout is not None:
             updates["STREAM_STALL_TIMEOUT"] = "%g" % max(30.0, float(req.stream_stall_timeout))
             apply_env["STREAM_STALL_TIMEOUT"] = updates["STREAM_STALL_TIMEOUT"]
-        if req.max_iterations is not None:
-            updates["MAX_ITERATIONS"] = str(max(1, min(60, int(req.max_iterations))))
-            apply_env["MAX_ITERATIONS"] = updates["MAX_ITERATIONS"]
         if req.api_key.strip():
             updates["SELECTEL_API_KEY"] = "dpapi:" + dpapi_encrypt(req.api_key.strip())
             apply_env["SELECTEL_API_KEY"] = updates["SELECTEL_API_KEY"]  # иначе перезапуск унаследует старый ключ
@@ -323,9 +317,6 @@ def save_settings(req: SettingsSaveRequest):
         # таймаут тишины потока при первом сохранении записывается в .env, чтобы его было видно и можно было поменять
         if "STREAM_STALL_TIMEOUT" not in updates and not re.search(r"^\s*STREAM_STALL_TIMEOUT\s*=", env_text, re.M):
             updates["STREAM_STALL_TIMEOUT"] = "%g" % _stream_stall_timeout()
-        # лимит итераций при первом сохранении записывается в .env, чтобы его было видно и можно было поменять
-        if "MAX_ITERATIONS" not in updates and not re.search(r"^\s*MAX_ITERATIONS\s*=", env_text, re.M):
-            updates["MAX_ITERATIONS"] = str(_max_iterations())
         _update_env_file(updates)
     except Exception:
         log.exception("не удалось сохранить настройки")
@@ -340,7 +331,10 @@ def save_settings(req: SettingsSaveRequest):
     # порт освобождается) и снова запускает сервер без открытия браузера
     # (run_hidden.vbs restart: дожидается освобождения порта, затем стартует)
     try:
-        detached = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: скрытый запуск.
+        # ВАЖНО: не использовать DETACHED_PROCESS — powershell/wscript-потомок
+        # с ним молча не выполняет скрипт (проверено на PS 5.1).
+        detached = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         subprocess.Popen(
             ["wscript.exe", str(BASE_DIR / "run_hidden.vbs"), "restart"],
             cwd=str(BASE_DIR), creationflags=detached,
@@ -689,14 +683,6 @@ def _stream_stall_timeout():
         return max(30.0, float(os.getenv("STREAM_STALL_TIMEOUT", "") or STREAM_STALL_TIMEOUT_DEFAULT))
     except ValueError:
         return STREAM_STALL_TIMEOUT_DEFAULT
-
-
-def _max_iterations():
-    """Максимум шагов «модель -> инструмент» за один запрос (MAX_ITERATIONS)."""
-    try:
-        return max(1, min(60, int(os.getenv("MAX_ITERATIONS", "") or MAX_ITERATIONS_DEFAULT)))
-    except ValueError:
-        return MAX_ITERATIONS_DEFAULT
 
 
 # ---------------------------------------------------------------------------
@@ -1471,9 +1457,11 @@ async def _run_agent_loop(client, model, temperature, full_autonomy, project,
     use_stream_options = True
     cost_total = 0.0
 
-    for iteration in range(_max_iterations()):
-        log.info("итерация %d/%d (проект: %s)", iteration + 1, _max_iterations(), project or "—")
-        yield sse("iteration", {"index": iteration + 1})
+    iteration = 0
+    while True:  # без лимита: цикл завершает модель финальным ответом, «Стоп» или сторож тишины
+        iteration += 1
+        log.info("итерация %d (проект: %s)", iteration, project or "—")
+        yield sse("iteration", {"index": iteration})
 
         request_kwargs = dict(
             model=model,
@@ -1667,42 +1655,6 @@ async def _run_agent_loop(client, model, temperature, full_autonomy, project,
         full_history.append(final_msg)
         new_messages.append(final_msg)
         break
-    else:
-        # Достигнут лимит итераций — просим модель подвести итог без инструментов
-        yield sse("notice", {"message": "Достигнут лимит итераций (%d). Прошу модель подвести итог." % _max_iterations()})
-        full_history.append({"role": "user", "content": "Достигнут лимит итераций. Подведи итог сделанной работы и перечисли созданные файлы."})
-        try:
-            summary_t0 = time.monotonic()
-            create_task = asyncio.ensure_future(client.chat.completions.create(
-                model=model, messages=full_history, temperature=temperature, stream=True))
-            try:
-                while True:
-                    try:
-                        stream = await asyncio.wait_for(asyncio.shield(create_task), 15.0)
-                        break
-                    except asyncio.TimeoutError:
-                        yield sse("ping", {"elapsed": int(time.monotonic() - summary_t0), "phase": "подключение к модели"})
-            except BaseException:
-                create_task.cancel()
-                raise
-            content_acc = []
-            async for kind, chunk in _aiter_with_heartbeat(stream):
-                if kind == "ping":
-                    yield sse("ping", {"elapsed": int(time.monotonic() - summary_t0)})
-                    continue
-                if chunk.choices and chunk.choices[0].delta:
-                    delta = chunk.choices[0].delta
-                    rc = _delta_reasoning(delta)
-                    if rc:
-                        yield sse("reasoning", {"content": rc})
-                    if delta.content:
-                        piece = delta.content
-                        content_acc.append(piece)
-                        yield sse("text", {"content": piece})
-            final_msg = {"role": "assistant", "content": "".join(content_acc)}
-            new_messages.append(final_msg)
-        except Exception as e:
-            yield sse("error", {"message": "Не удалось получить итог: %s" % str(e)[:400]})
 
     # Автосохранение истории чата в папку проекта
     if project:
@@ -1874,7 +1826,8 @@ def update_check():
                 with httpx.Client(follow_redirects=True, **_http_client_kwargs(20.0)) as h:
                     mr = h.get(a["browser_download_url"], headers=GH_HEADERS)
                     mr.raise_for_status()
-                manifest = json.loads(mr.text[:100000])
+                # utf-8-sig: PS 5.1 пишет манифест с BOM — json.loads на нём падает
+                manifest = json.loads(mr.content.decode("utf-8-sig")[:100000])
             except Exception:
                 log.exception("не удалось прочитать манифест обновления")
             break
@@ -1903,16 +1856,25 @@ def _build_updater_script(root, stage):
     и запустит её заново. Только ASCII: PS 5.1 без BOM кириллицу читает как ANSI."""
     return r"""param([string]$Root, [string]$Stage)
 $ErrorActionPreference = "SilentlyContinue"
+# защита: без корректных пар параметров — ничего не делаем и никого не убиваем
+if (-not ($Root -and $Stage -and
+          (Test-Path -LiteralPath $Root -PathType Container) -and
+          (Test-Path -LiteralPath $Stage -PathType Container))) { return }
+$bin = Join-Path $Root "bin"
+$Log = Join-Path $bin "logs\update_log.txt"
+New-Item -ItemType Directory -Path (Join-Path $bin "logs") -Force | Out-Null
+Add-Content $Log "[$(Get-Date -Format s)] updater: root=$Root stage=$Stage"
 Start-Sleep -Seconds 2
 # остановить всё, что работает из папки программы (сервер уже завершается сам)
-$bin = Join-Path $Root "bin"
 Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($bin, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force
 Start-Sleep -Seconds 2
 # заменить файлы программы. Пользовательские данные и тяжёлые наборы не трогаем:
 # python, Tesseract-OCR, logs, .env остаются как были (обновляются только полным архивом вручную)
 robocopy $Stage $Root /E /NFL /NDL /NJH /NJS /NP /XD python Tesseract-OCR logs __pycache__ workspace docs .git /XF .env .desktop_shortcut_done update.ps1 | Out-Null
+Add-Content $Log "[$(Get-Date -Format s)] robocopy exit: $LASTEXITCODE (1-7 ok, 8+ fail)"
 # запустить сервер заново (restart: дождаться свободного порта и стартовать без браузера)
 Start-Process wscript.exe -ArgumentList ('"' + (Join-Path $bin "run_hidden.vbs") + '" restart')
+Add-Content $Log "[$(Get-Date -Format s)] restart triggered"
 # подчистить временную папку через минуту
 Start-Process cmd.exe -ArgumentList ('/c ping -n 61 127.0.0.1 >nul & rmdir /s /q "' + $Stage + '"')
 """
@@ -1966,7 +1928,8 @@ def update_apply():
     try:
         script = stage / "update.ps1"
         script.write_text(_build_updater_script(str(BASE_DIR.parent), str(stage)), encoding="utf-8-sig")
-        detached = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        detached = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+        # (DETACHED_PROCESS здесь ломал обновление: powershell молча не запускал скрипт)
         subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
              "-WindowStyle", "Hidden", "-File", str(script),

@@ -615,8 +615,6 @@ details.reason .reason-body {
       <input type="text" id="set-daily-limit" inputmode="decimal" placeholder="0" autocomplete="off">
       <label class="fld">Таймаут тишины модели, сек (если ответ «завис» — уменьшите)</label>
       <input type="text" id="set-stall-timeout" inputmode="numeric" placeholder="180" autocomplete="off">
-      <label class="fld">Лимит итераций, шагов за запрос (1–60; больше — дольше и дороже)</label>
-      <input type="text" id="set-max-iter" inputmode="numeric" placeholder="30" autocomplete="off">
       <div id="settings-error" style="color:var(--danger); font-size:12px; min-height:16px; margin:6px 0;"></div>
       <button class="btn primary" id="settings-save">Сохранить и перезапустить</button>
       <button class="btn" id="net-check" style="width:auto; padding:8px 14px; margin-top:6px;">Проверить связь с Selectel</button>
@@ -1082,6 +1080,7 @@ function handleSse(t, ev, data) {
     reasonFinalize(t);   // новая итерация — новый блок рассуждений
     t.textEl = null; t.textBuf = ""; t.capped = false;
     t.reasoningLen = 0;
+    t.iterCount = data.index;
     showThinking(t);
     return;
   }
@@ -1225,7 +1224,7 @@ function handleSse(t, ev, data) {
     const foot = document.createElement("div");
     foot.className = "turn-footer";
     foot.innerHTML = (cost > 0 ? '<span class="cost-badge">Стоимость: ' + cost.toFixed(6) + " руб.</span>" : "") +
-      "<span>Итераций агентского цикла завершено.</span>";
+      "<span>Итераций агентского цикла: " + (t.iterCount || 0) + ".</span>";
     t.turn.appendChild(foot);
     if (currentKey !== t.s.key && t.touched) t.s.unread = true;
     if (currentKey === t.s.key) scrollDown();
@@ -2073,7 +2072,6 @@ function openSettingsModal() {
     $("badge-pass").style.display = d.has_proxy_password ? "" : "none";
     $("set-daily-limit").value = d.daily_limit ? String(d.daily_limit) : "";
     $("set-stall-timeout").value = d.stream_stall_timeout ? String(d.stream_stall_timeout) : "";
-  $("set-max-iter").value = d.max_iterations ? String(d.max_iterations) : "";
     syncProxyFields();
   }).catch(() => {});
   $("settings-overlay").style.display = "flex";
@@ -2110,8 +2108,7 @@ $("settings-save").onclick = async () => {
     ssl_verify: $("set-ssl-verify").checked,
     api_key: $("set-api-key").value.trim(),
     daily_limit: parseFloat(($("set-daily-limit").value || "0").replace(",", ".")) || 0,
-    stream_stall_timeout: parseFloat(($("set-stall-timeout").value || "").replace(",", ".")) || null,
-    max_iterations: parseInt(($("set-max-iter").value || "").replace(",", "."), 10) || null
+    stream_stall_timeout: parseFloat(($("set-stall-timeout").value || "").replace(",", ".")) || null
   };
   const btn = $("settings-save");
   btn.disabled = true;
