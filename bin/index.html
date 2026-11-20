@@ -408,10 +408,6 @@ details.reason .reason-body {
           <input type="checkbox" id="auto-code">
           <span><span class="t">Выполнять код автоматически</span><br><span class="d">Работает в режиме «Полная автономность». Если включено — модель выполняет код сама. Если выключено — каждый запуск кода нужно подтвердить кнопкой «Выполнить»</span></span>
         </label>
-        <label class="mode-opt" style="margin-top:6px;">
-          <input type="checkbox" id="restrict-outside">
-          <span><span class="t">Запретить активность вне папки проекта</span><br><span class="d">Код перед выполнением проверяется на выход за пределы папки проекта: подозрительные строки подсвечиваются цветом, и выполнение спрашивается у вас — даже при включённом авто-выполнении. Другие инструменты (чтение, файлы, документы) и так ограничены рабочей папкой</span></span>
-        </label>
       </div>
     </div>
 
@@ -665,7 +661,6 @@ function mkSession(key) {
     model: "", temperature: 0.4, fullAutonomy: false,
     webAccess: false,             // «Доступ в интернет» — у проекта свой
     autoCode: true,               // «Выполнять код автоматически» — у проекта свой
-    restrictOutside: true,        // «Запретить активность вне папки проекта» — у проекта свой, по умолчанию включена
     loaded: false,                // история/настройки загружены с диска
     rendered: false,              // DOM чата построен
     streaming: false, controller: null,
@@ -900,7 +895,7 @@ function buildEmptyHint() {
       '<ul>' +
       '<li><b>Контроль данных:</b> загружайте только проверенные документы. Помните, что в файлах могут содержаться скрытые инструкции для модели (prompt injection).</li>' +
       '<li><b>Поэтапный доступ:</b> незнакомые файлы сначала изучайте в режиме «Только чтение». Переходите к «Полной автономности» только после анализа содержимого.</li>' +
-      '<li><b>Верификация кода:</b> всегда проверяйте код перед запуском. Если алгоритм вызывает сомнения — используйте команду «Не выполнять». Опция «Запретить активность вне папки проекта» поможет вам быстро обнаружить подозрительные операции с файловой системой.</li>' +
+      '<li><b>Верификация кода:</b> код агента выполняется в песочнице — файлы только внутри рабочей папки проекта, сеть и запуск программ из кода запрещены. При выключенном авто-режиме каждый запуск кода вы подтверждаете сами, а подсветка покажет выходы за папку, если код о них «думает».</li>' +
       '<li><b>Ограничение сети:</b> активируйте «Доступ в интернет» только в тех случаях, когда это необходимо для выполнения конкретной задачи.</li>' +
       '<li><b>Мониторинг действий:</b> регулярно просматривайте логи выполнения команд, чтобы убедиться в корректности действий агента.</li>' +
       '</ul></div>';
@@ -1146,8 +1141,8 @@ function handleSse(t, ev, data) {
     return;
   }
   if (ev === "code_confirm") {
-    /* модель хочет выполнить код; при включённой проверке «вне папки проекта»
-       подозрительные строки приходят в reasons и подсвечиваются цветом */
+    /* модель хочет выполнить код: suspect-строки (выход за папку) приходят
+       в reasons и подсвечиваются; подтверждение спрашивается при ручном режиме */
     const steps = t.agent.querySelectorAll("details.step");
     const step = steps[steps.length - 1];
     if (step) {
@@ -1167,7 +1162,7 @@ function handleSse(t, ev, data) {
       });
       let head = '<div class="confirm-ask">Модель хочет выполнить код. Разрешить?</div>';
       if ((data.reasons || []).length) {
-        head = '<div class="confirm-ask warn">Проверка «Запретить активность вне папки проекта» нашла подозрительные строки (выделены цветом):</div>' +
+        head = '<div class="confirm-ask warn">В коде есть строки с выходом за пределы папки проекта (выделены цветом):</div>' +
           '<ul class="confirm-reasons">' +
           data.reasons.map(r => "<li>строка " + r.line + ": " + escapeHtml(r.reason) + "</li>").join("") +
           "</ul>";
@@ -1244,7 +1239,7 @@ function persistSettings(s) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: s.project, model: s.model, temperature: s.temperature,
         full_autonomy: s.fullAutonomy, web_access: s.webAccess,
-        auto_code: s.autoCode, restrict_outside: s.restrictOutside })
+        auto_code: s.autoCode })
     }).catch(() => {});
   } else {
     localStorage.setItem("selagent-model", s.model);
@@ -1252,7 +1247,6 @@ function persistSettings(s) {
     localStorage.setItem("selagent-mode", s.fullAutonomy ? "full" : "readonly");
     localStorage.setItem("krab-web", s.webAccess ? "1" : "0");
     localStorage.setItem("krab-auto-code", s.autoCode ? "1" : "0");
-    localStorage.setItem("krab-restrict-outside", s.restrictOutside ? "1" : "0");
   }
 }
 
@@ -1308,7 +1302,6 @@ async function send() {
         full_autonomy: s.fullAutonomy,
         web_access: s.webAccess,
         auto_code: s.autoCode,
-        restrict_outside: s.restrictOutside,
         project: s.project
       }),
       signal: s.controller.signal
@@ -1684,10 +1677,8 @@ function applyModeUI(s) {
   /* галочки «Режима прав» — у каждого чата свои */
   $("web-access").checked = !!s.webAccess;
   $("auto-code").checked = !!s.autoCode;
-  $("restrict-outside").checked = !!s.restrictOutside;
   /* обе галочки про выполнение кода — только в «Полной автономности» */
   $("auto-code").disabled = !s.fullAutonomy;
-  $("restrict-outside").disabled = !s.fullAutonomy;
 }
 document.querySelectorAll("input[name=mode]").forEach(r => {
   r.onchange = () => {
@@ -1715,8 +1706,7 @@ function renderTools() {
 function pythonRunHint() {
   const s = cur();
   if (!s.autoCode) return "каждый запуск — после подтверждения";
-  if (s.restrictOutside) return "проверяется выход за папку проекта";
-  return "";
+  return "всегда в песочнице: файлы только в папке проекта";
 }
 function toolLi(t, enabled, hint, enabledHint) {
   const li = document.createElement("li");
@@ -1755,7 +1745,7 @@ $("proj-create").onclick = async () => {
     closeProjModal();
     const ps = session(data.name);
     ps.model = sc.model; ps.temperature = sc.temperature; ps.fullAutonomy = sc.fullAutonomy;
-    ps.webAccess = sc.webAccess; ps.autoCode = sc.autoCode; ps.restrictOutside = sc.restrictOutside;
+    ps.webAccess = sc.webAccess; ps.autoCode = sc.autoCode;
     persistSettings(ps);           // настройки черновика -> в проект
     /* черновик переехал в проект целиком (переписка и файлы) — начинаем чистый черновик */
     if (sc.streaming && sc.controller) sc.controller.abort();
@@ -1764,7 +1754,7 @@ $("proj-create").onclick = async () => {
     sessions.delete(SCRATCH);
     const nd = session(SCRATCH);
     nd.model = sc.model; nd.temperature = sc.temperature; nd.fullAutonomy = sc.fullAutonomy;
-    nd.webAccess = sc.webAccess; nd.autoCode = sc.autoCode; nd.restrictOutside = sc.restrictOutside;
+    nd.webAccess = sc.webAccess; nd.autoCode = sc.autoCode;
     if (window.krabDraftChanged) window.krabDraftChanged();
     switchTo(data.name);           // подтянет историю с диска и применит настройки
     $("status").textContent = "Проект «" + data.name + "» создан: переписка и файлы черновика перенесены в его папку.";
@@ -1941,7 +1931,6 @@ async function switchTo(key) {
       s.fullAutonomy = p.settings.full_autonomy;
       s.webAccess = !!p.settings.web_access;
       s.autoCode = p.settings.auto_code !== false;
-      s.restrictOutside = p.settings.restrict_outside !== false;   // по умолчанию включена
       s.loaded = true;
       const h = await fetch("/api/chat_history?project=" + encodeURIComponent(s.project));
       const hd = await h.json();
@@ -2218,13 +2207,12 @@ input.addEventListener("keydown", (e) => {
   /* прежняя сборка сама записывала галочки при любом сохранении настроек — её «выключено»
      могло быть не выбором пользователя: один раз сбрасываем и берём новые умолчания */
   if (!localStorage.getItem("krab-restrict-migrated")) {
-    localStorage.removeItem("krab-restrict-outside");
+    localStorage.removeItem("krab-restrict-outside");   // галочка удалена — чистим след
     localStorage.removeItem("krab-auto-code");
     localStorage.setItem("krab-restrict-migrated", "1");
   }
   sc.webAccess = localStorage.getItem("krab-web") === "1";
   sc.autoCode = localStorage.getItem("krab-auto-code") !== "0";   // по умолчанию включено
-  sc.restrictOutside = localStorage.getItem("krab-restrict-outside") !== "0";   // по умолчанию включена
   renderTools();
   applyTempUI(sc);
   applyModeUI(sc);
@@ -2276,10 +2264,9 @@ window.krabUsage = function (s, usage) {
 
   /* --- галочки «Режима прав»: у каждого чата свои (проект хранит их в project.json,
          черновик — в localStorage); applyModeUI уже выставил их из состояния сессии --- */
-  const web = $("web-access"), autoCode = $("auto-code"), restrictOut = $("restrict-outside");
+  const web = $("web-access"), autoCode = $("auto-code");
   web.onchange = () => { const s = cur(); s.webAccess = web.checked; persistSettings(s); renderTools(); };
   autoCode.onchange = () => { const s = cur(); s.autoCode = autoCode.checked; persistSettings(s); renderTools(); };
-  restrictOut.onchange = () => { const s = cur(); s.restrictOutside = restrictOut.checked; persistSettings(s); renderTools(); };
   renderTools();
 
   /* --- прикрепить файл / перетащить в окно --- */
@@ -2557,7 +2544,6 @@ window.krabUsage = function (s, usage) {
     sc.fullAutonomy = localStorage.getItem("selagent-mode") === "full";
     sc.webAccess = localStorage.getItem("krab-web") === "1";
     sc.autoCode = localStorage.getItem("krab-auto-code") !== "0";
-    sc.restrictOutside = localStorage.getItem("krab-restrict-outside") !== "0";   // по умолчанию включена
     showSessionView(sc);
     syncModelUI(sc);
     renderTools();

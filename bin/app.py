@@ -90,6 +90,10 @@ def _code_stamp():
 _CODE_STAMP_AT_START = _code_stamp()
 DEFAULT_PORT = "38573"  # порт по умолчанию; то же значение в run_hidden.vbs, run.bat, stop.bat, open_ui.ps1
 STREAM_STALL_TIMEOUT_DEFAULT = 180  # сек тишины потока модели до разрыва (STREAM_STALL_TIMEOUT)
+API_RETRY_ATTEMPTS = 3    # попыток запроса к модели при транзиторных сбоях (обрыв стрима, 5xx, 429)
+API_RETRY_BASE_DELAY = 3  # сек ожидания перед повтором (растёт с номером попытки)
+LOOP_WARN_REPEATS = 4     # одинаковый вызов инструментов N раз подряд — напоминание модели
+LOOP_FORCE_REPEATS = 6    # ...— принудительный итог (защита от зацикливания)
 
 app = FastAPI(title="КРАБ")
 
@@ -749,6 +753,14 @@ def _tool_http_get(url, max_bytes=3 * 1024 * 1024):
                "Accept-Language": "ru,en;q=0.8"}
     with httpx.Client(follow_redirects=True, headers=headers, **_http_client_kwargs(30.0)) as h:
         with h.stream("GET", url) as r:
+            # SSRF-защита: внешний URL мог редиректнуть на внутренний адрес корпоративной сети
+            try:
+                from urllib.parse import urlparse as _up
+                _fh = _up(str(r.url)).hostname
+                if _fh and tools._is_local_address(_fh):
+                    raise tools.ToolError("Редирект ведёт на внутренний адрес (%s) — доступ запрещён." % _fh)
+            except tools.ToolError:
+                raise
             chunks, size = [], 0
             for chunk in r.iter_bytes():
                 chunks.append(chunk)
@@ -1268,8 +1280,8 @@ def _clip_tool_result(text, limit=20000):
 
 
 # ---------------------------------------------------------------------------
-# Подтверждение выполнения кода (галочки «Выполнять код автоматически» и
-# «Запретить активность вне папки проекта»): агентский цикл останавливается
+# Подтверждение выполнения кода (галочка «Выполнять код автоматически»):
+# агентский цикл останавливается
 # и ждёт решения пользователя; решение присылает POST /api/code/confirm.
 # ---------------------------------------------------------------------------
 
@@ -1376,7 +1388,6 @@ async def agent_stream(payload):
     full_autonomy = bool(payload.get("full_autonomy", False))
     web_access = bool(payload.get("web_access", False))
     auto_code = bool(payload.get("auto_code", True))
-    restrict_outside = bool(payload.get("restrict_outside", False))
     project = valid_project_name(payload.get("project") or "") or ""
 
     if not _secrets["api_key"]:
@@ -1428,8 +1439,7 @@ async def agent_stream(payload):
     log.info("старт: model=%s project=%s mode=%s temp=%s сообщений=%d",
              model, project or "—", "полная автономность" if full_autonomy else "только чтение",
              temperature, len(history))
-    log.info("галочки: web_access=%s auto_code=%s restrict_outside=%s",
-             web_access, auto_code, restrict_outside)
+    log.info("галочки: web_access=%s auto_code=%s", web_access, auto_code)
     try:
         if kind:
             async for event in _run_media_generation(client, model, kind, prompt, project,
@@ -1438,7 +1448,7 @@ async def agent_stream(payload):
         else:
             async for event in _run_agent_loop(client, model, temperature, full_autonomy, project,
                                                full_history, tools_schemas, new_messages, web_access,
-                                               auto_code, restrict_outside):
+                                               auto_code):
                 yield event
         log.info("завершено: новых сообщений=%d", len(new_messages))
     except (GeneratorExit, asyncio.CancelledError):
@@ -1451,11 +1461,42 @@ async def agent_stream(payload):
             pass
 
 
+async def _stream_final(client, model, temperature, messages):
+    """Финальный запрос без инструментов (итог работы). Асинхронный генератор
+    событий ("text"/"reasoning"/"ping", payload) — вызывающий пересылает их в SSE."""
+    t0 = time.monotonic()
+    create_task = asyncio.ensure_future(client.chat.completions.create(
+        model=model, messages=messages, temperature=temperature, stream=True))
+    try:
+        while True:
+            try:
+                stream = await asyncio.wait_for(asyncio.shield(create_task), 15.0)
+                break
+            except asyncio.TimeoutError:
+                yield ("ping", {"elapsed": int(time.monotonic() - t0), "phase": "подключение к модели"})
+    except BaseException:
+        create_task.cancel()
+        raise
+    async for kind, chunk in _aiter_with_heartbeat(stream):
+        if kind == "ping":
+            yield ("ping", {"elapsed": int(time.monotonic() - t0)})
+            continue
+        if chunk.choices and chunk.choices[0].delta:
+            delta = chunk.choices[0].delta
+            rc = _delta_reasoning(delta)
+            if rc:
+                yield ("reasoning", {"content": rc})
+            if delta.content:
+                yield ("text", {"content": delta.content})
+
+
 async def _run_agent_loop(client, model, temperature, full_autonomy, project,
                           full_history, tools_schemas, new_messages, web_access=False,
-                          auto_code=True, restrict_outside=False):
+                          auto_code=True):
     use_stream_options = True
     cost_total = 0.0
+    last_call_sig = None   # сигнатура последнего набора вызовов инструментов (анти-зацикливание)
+    same_call_count = 0    # сколько итераций подряд повторяется один и тот же набор вызовов
 
     iteration = 0
     while True:  # без лимита: цикл завершает модель финальным ответом, «Стоп» или сторож тишины
@@ -1473,98 +1514,121 @@ async def _run_agent_loop(client, model, temperature, full_autonomy, project,
             request_kwargs["stream_options"] = {"include_usage": True}
 
         stream_t0 = time.monotonic()
-        try:
-            create_task = asyncio.ensure_future(client.chat.completions.create(stream=True, **request_kwargs))
-            try:
-                while True:
-                    try:
-                        stream = await asyncio.wait_for(asyncio.shield(create_task), 15.0)
-                        break
-                    except asyncio.TimeoutError:
-                        # рукопожатие с API затянулось: канал жив, модель/сеть ещё отвечают — шлём ping
-                        yield sse("ping", {"elapsed": int(time.monotonic() - stream_t0), "phase": "подключение к модели"})
-            except BaseException:
-                create_task.cancel()
-                raise
-        except openai.BadRequestError as e:
-            msg = str(e)
-            if use_stream_options and _looks_like_stream_options_error(msg):
-                use_stream_options = False
-                continue
-            if tools_schemas and _looks_like_tools_error(msg):
-                # Фолбэк: модель не поддерживает Tool Calling
-                log.warning("модель %s не поддерживает Tool Calling — фолбэк без инструментов", model)
-                yield sse("notice", {"message": "Модель %s не поддерживает Tool Calling — продолжаю без инструментов (только текст)." % model})
-                tools_schemas = []
-                continue
-            log.error("API 400 при вызове модели: %s", msg)
-            yield sse("error", {"message": "Ошибка API (400): %s" % msg[:800]})
-            yield sse("done", {"messages": new_messages, "cost_total": cost_total})
-            return
-        except openai.AuthenticationError as e:
-            log.error("Ошибка аутентификации (ключ Selectel?): %s", e)
-            yield sse("error", {"message": "Ошибка аутентификации: проверьте SELECTEL_API_KEY в .env. %s" % str(e)[:400]})
-            yield sse("done", {"messages": new_messages, "cost_total": cost_total})
-            return
-        except openai.NotFoundError as e:
-            log.error("Модель не найдена: %s", e)
-            yield sse("error", {"message": "Модель не найдена: %s. %s" % (model, str(e)[:400])})
-            yield sse("done", {"messages": new_messages, "cost_total": cost_total})
-            return
-        except Exception as e:
-            log.exception("Ошибка при обращении к API Selectel: %s", e)
-            yield sse("error", {"message": "%s: %s" % (type(e).__name__, str(e)[:800])})
-            yield sse("done", {"messages": new_messages, "cost_total": cost_total})
-            return
-
-        content_acc = []
-        tool_calls_acc = {}
-        finish_reason = None
         usage_json = None
+        attempt = 0
+        while True:  # ретраи транзиторных сбоев (обрыв стрима, 5xx шлюза, 429) — ход не умирает зря
+            attempt += 1
+            try:
+                create_task = asyncio.ensure_future(client.chat.completions.create(stream=True, **request_kwargs))
+                try:
+                    while True:
+                        try:
+                            stream = await asyncio.wait_for(asyncio.shield(create_task), 15.0)
+                            break
+                        except asyncio.TimeoutError:
+                            # рукопожатие с API затянулось: канал жив, модель/сеть ещё отвечают — шлём ping
+                            yield sse("ping", {"elapsed": int(time.monotonic() - stream_t0), "phase": "подключение к модели"})
+                except BaseException:
+                    create_task.cancel()
+                    raise
+            except openai.BadRequestError as e:
+                msg = str(e)
+                if use_stream_options and _looks_like_stream_options_error(msg):
+                    use_stream_options = False
+                    attempt = 0
+                    continue
+                if tools_schemas and _looks_like_tools_error(msg):
+                    # Фолбэк: модель не поддерживает Tool Calling
+                    log.warning("модель %s не поддерживает Tool Calling — фолбэк без инструментов", model)
+                    yield sse("notice", {"message": "Модель %s не поддерживает Tool Calling — продолжаю без инструментов (только текст)." % model})
+                    tools_schemas = []
+                    attempt = 0
+                    continue
+                log.error("API 400 при вызове модели: %s", msg)
+                yield sse("error", {"message": "Ошибка API (400): %s" % msg[:800]})
+                yield sse("done", {"messages": new_messages, "cost_total": cost_total})
+                return
+            except openai.AuthenticationError as e:
+                log.error("Ошибка аутентификации (ключ Selectel?): %s", e)
+                yield sse("error", {"message": "Ошибка аутентификации: проверьте SELECTEL_API_KEY в .env. %s" % str(e)[:400]})
+                yield sse("done", {"messages": new_messages, "cost_total": cost_total})
+                return
+            except openai.NotFoundError as e:
+                log.error("Модель не найдена: %s", e)
+                yield sse("error", {"message": "Модель не найдена: %s. %s" % (model, str(e)[:400])})
+                yield sse("done", {"messages": new_messages, "cost_total": cost_total})
+                return
+            except Exception as e:
+                # транзиторный сбой на старте запроса (5xx шлюза, соединение, 429) — повторяем
+                if attempt >= API_RETRY_ATTEMPTS:
+                    log.exception("запрос к модели не удался после %d попыток", attempt)
+                    yield sse("error", {"message": "%s: %s" % (type(e).__name__, str(e)[:800])})
+                    yield sse("done", {"messages": new_messages, "cost_total": cost_total})
+                    return
+                delay = API_RETRY_BASE_DELAY * attempt
+                log.warning("сбой запроса к модели (попытка %d/%d): %s: %s — повтор через %d сек",
+                            attempt, API_RETRY_ATTEMPTS, type(e).__name__, str(e)[:200], delay)
+                yield sse("notice", {"message": "Сбой связи с моделью (попытка %d/%d) — повторяю запрос через %d сек..."
+                                      % (attempt, API_RETRY_ATTEMPTS, delay)})
+                await asyncio.sleep(delay)
+                continue
 
-        try:
-            async for kind, chunk in _aiter_with_heartbeat(stream):
-                if kind == "ping":
-                    # держим канал живым: пусть браузер знает, что сервер на связи
-                    yield sse("ping", {"elapsed": int(time.monotonic() - stream_t0)})
-                    continue
-                if getattr(chunk, "usage", None):
-                    usage_json = _usage_to_json(chunk.usage)
-                if not chunk.choices:
-                    continue
-                choice = chunk.choices[0]
-                delta = choice.delta
-                if delta is None:
-                    continue
-                rc = _delta_reasoning(delta)
-                if rc:
-                    # модель размышляет (deepseek-r1 и т.п.) — показываем прогресс в UI
-                    yield sse("reasoning", {"content": rc})
-                if delta.content:
-                    content_acc.append(delta.content)
-                    yield sse("text", {"content": delta.content})
-                for tc in (delta.tool_calls or []):
-                    slot = tool_calls_acc.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
-                    if tc.id:
-                        slot["id"] = tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            slot["name"] += tc.function.name
-                        if tc.function.arguments:
-                            slot["arguments"] += tc.function.arguments
-                if choice.finish_reason:
-                    finish_reason = choice.finish_reason
-        except openai.APITimeoutError:
-            _sst = "%g" % _stream_stall_timeout()
-            log.error("таймаут чтения потока модели: нет данных дольше %s сек (STREAM_STALL_TIMEOUT)", _sst)
-            yield sse("error", {"message": "Модель молчит дольше %s сек — соединение, вероятно, оборвалось (прокси/сеть). Повторите запрос." % _sst})
-            yield sse("done", {"messages": new_messages, "cost_total": cost_total})
-            return
-        except Exception as e:
-            log.warning("обрыв потока модели: %s: %s", type(e).__name__, str(e)[:300])
-            yield sse("error", {"message": "Обрыв потока: %s" % str(e)[:500]})
-            yield sse("done", {"messages": new_messages, "cost_total": cost_total})
-            return
+            content_acc = []
+            tool_calls_acc = {}
+            finish_reason = None
+
+            try:
+                async for kind, chunk in _aiter_with_heartbeat(stream):
+                    if kind == "ping":
+                        # держим канал живым: пусть браузер знает, что сервер на связи
+                        yield sse("ping", {"elapsed": int(time.monotonic() - stream_t0)})
+                        continue
+                    if getattr(chunk, "usage", None):
+                        usage_json = _usage_to_json(chunk.usage)
+                    if not chunk.choices:
+                        continue
+                    choice = chunk.choices[0]
+                    delta = choice.delta
+                    if delta is None:
+                        continue
+                    rc = _delta_reasoning(delta)
+                    if rc:
+                        # модель размышляет (deepseek-r1 и т.п.) — показываем прогресс в UI
+                        yield sse("reasoning", {"content": rc})
+                    if delta.content:
+                        content_acc.append(delta.content)
+                        yield sse("text", {"content": delta.content})
+                    for tc in (delta.tool_calls or []):
+                        slot = tool_calls_acc.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                        if tc.id:
+                            slot["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                slot["name"] += tc.function.name
+                            if tc.function.arguments:
+                                slot["arguments"] += tc.function.arguments
+                    if choice.finish_reason:
+                        finish_reason = choice.finish_reason
+            except openai.APITimeoutError:
+                _sst = "%g" % _stream_stall_timeout()
+                log.error("таймаут чтения потока модели: нет данных дольше %s сек (STREAM_STALL_TIMEOUT)", _sst)
+                yield sse("error", {"message": "Модель молчит дольше %s сек — соединение, вероятно, оборвалось (прокси/сеть). Повторите запрос." % _sst})
+                yield sse("done", {"messages": new_messages, "cost_total": cost_total})
+                return
+            except Exception as e:
+                # обрыв стрима посреди ответа — транзиторно, повторяем запрос целиком
+                if attempt >= API_RETRY_ATTEMPTS:
+                    log.warning("обрыв потока модели после %d попыток: %s: %s", attempt, type(e).__name__, str(e)[:300])
+                    yield sse("error", {"message": "Обрыв потока: %s" % str(e)[:500]})
+                    yield sse("done", {"messages": new_messages, "cost_total": cost_total})
+                    return
+                log.warning("обрыв потока модели (попытка %d/%d): %s: %s",
+                            attempt, API_RETRY_ATTEMPTS, type(e).__name__, str(e)[:300])
+                yield sse("notice", {"message": "Обрыв потока (попытка %d/%d) — повторяю запрос..." % (attempt, API_RETRY_ATTEMPTS)})
+                await asyncio.sleep(API_RETRY_BASE_DELAY * attempt)
+                continue
+
+            break  # запрос прошёл целиком — выходим из ретраев
 
         if usage_json:
             ci, co, ct = _cost_parts(usage_json)
@@ -1574,7 +1638,17 @@ async def _run_agent_loop(client, model, temperature, full_autonomy, project,
 
         assistant_content = "".join(content_acc).strip()
 
-        if finish_reason == "tool_calls" and tool_calls_acc:
+        # Контекст переполнен: выполнение возможно обрезанных вызовов невозможно — понятная ошибка
+        if finish_reason == "length":
+            log.error("переполнен контекст модели %s (итерация %d)", model, iteration)
+            yield sse("error", {"message": "Контекст модели переполнен (лимит токенов). Сожмите проект (кнопка «Сжать проект») или начните новый чат."})
+            yield sse("done", {"messages": new_messages, "cost_total": cost_total})
+            return
+
+        if tool_calls_acc:
+            # выполняем по факту накопленных вызовов, БЕЗ требования finish_reason == "tool_calls":
+            # некоторые шлюзы завершают стрим с "stop"/пустым finish_reason — раньше такие вызовы
+            # «терялись» (модель просила данные, а результаты не попадали в историю) и она зацикливалась
             tc_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
             assistant_msg = {
                 "role": "assistant",
@@ -1592,8 +1666,11 @@ async def _run_agent_loop(client, model, temperature, full_autonomy, project,
                 # --- подтверждение выполнения кода ---
                 if tc["name"] == "run_python_snippet" and full_autonomy:
                     code = _tool_arg_code(tc["arguments"])
-                    suspects = tools.suspicious_code_lines(code) if (restrict_outside and code) else []
-                    if code and ((not auto_code) or suspects):
+                    # предпроверка всегда: подсвечивает выходы за папку; выполнение кода
+                    # спрашивается только при выключенном авто-режиме — ограничение
+                    # файлов/сети/программ обеспечивает песочница (bin/sandbox_guard.py)
+                    suspects = tools.suspicious_code_lines(code) if code else []
+                    if code and not auto_code:
                         confirm_id = uuid.uuid4().hex
                         approved = False
                         fut = asyncio.get_running_loop().create_future()
@@ -1646,11 +1723,62 @@ async def _run_agent_loop(client, model, temperature, full_autonomy, project,
                 full_history.append({"role": "tool", "tool_call_id": tc["id"],
                                      "content": _clip_tool_result(result)})
                 new_messages.append({"role": "tool", "tool_call_id": tc["id"], "content": _clip_tool_result(result)})
+
+            # --- защита от зацикливания: один и тот же набор вызовов раз за разом ---
+            sig = tuple("%s %s" % (tc["name"], tc["arguments"] or "") for tc in tc_list)
+            same_call_count = same_call_count + 1 if sig == last_call_sig else 1
+            last_call_sig = sig
+            if same_call_count == LOOP_WARN_REPEATS:
+                nudge = ("Служебное напоминание: ты уже %d раз вызываешь одни и те же инструменты с теми же "
+                         "аргументами. Результаты лежат в истории выше — прочитай их, используй и действуй иначе." % same_call_count)
+                full_history.append({"role": "user", "content": nudge})
+                new_messages.append({"role": "user", "content": nudge})
+                log.warning("зацикливание: одинаковые вызовы инструментов %d раз подряд — напоминание модели", same_call_count)
+            elif same_call_count >= LOOP_FORCE_REPEATS:
+                log.warning("зацикливание: одинаковые вызовы инструментов %d раз подряд — принудительный итог", same_call_count)
+                yield sse("notice", {"message": "Модель зациклилась на одних и тех же вызовах — запрашиваю итог работы."})
+                full_history.append({"role": "user", "content": "Ты повторяешь одни и те же вызовы инструментов без результата. "
+                                                               "Больше инструменты не вызывай — подведи итог сделанной работы: "
+                                                               "что сделано, какие файлы созданы или изменены, что помешало."})
+                final_msg = {"role": "assistant", "content": ""}
+                text_acc = []
+                try:
+                    async for ev, payload in _stream_final(client, model, temperature, full_history):
+                        if ev == "text":
+                            text_acc.append(payload["content"])
+                        yield sse(ev, payload)
+                    final_msg = {"role": "assistant", "content": "".join(text_acc).strip()
+                                 or "Итог не получен: модель зациклилась на повторных вызовах. Повторите запрос."}
+                except Exception as e:
+                    log.warning("итог после зацикливания не получен: %s", e)
+                    yield sse("error", {"message": "Не удалось получить итог: %s" % str(e)[:400]})
+                    final_msg = {"role": "assistant", "content": "Итог не получен: модель зациклилась на повторных вызовах. Повторите запрос."}
+                full_history.append(final_msg)
+                new_messages.append(final_msg)
+                break
             continue
 
-        # Финальный ответ (или ответ без инструментов)
+        # Финальный ответ (или ответ без инструментов). Сюда попадаем только когда
+        # накопленных вызовов инструментов нет (иначе — ветка выше).
         final_msg = {"role": "assistant", "content": assistant_content}
-        if not final_msg["content"] and not tool_calls_acc and iteration == 0:
+        if not assistant_content and iteration > 0:
+            # модель закончила работу без текста — не «финишируем молча»: один раз просим итог
+            yield sse("notice", {"message": "Модель завершила работу без ответа — запрашиваю итог."})
+            full_history.append({"role": "user", "content": "Твой ответ оказался пустым. Подведи итог сделанной работы: "
+                                                           "что сделано, какие файлы созданы или изменены."})
+            text_acc = []
+            try:
+                async for ev, payload in _stream_final(client, model, temperature, full_history):
+                    if ev == "text":
+                        text_acc.append(payload["content"])
+                    yield sse(ev, payload)
+                final_msg = {"role": "assistant", "content": "".join(text_acc).strip()
+                             or "Модель не смогла подвести итог — повторите запрос."}
+            except Exception as e:
+                log.warning("итог после пустого ответа не получен: %s", e)
+                yield sse("error", {"message": "Не удалось получить итог: %s" % str(e)[:400]})
+                final_msg = {"role": "assistant", "content": "Не удалось получить итог работы — повторите запрос."}
+        elif not assistant_content:
             yield sse("error", {"message": "Модель вернула пустой ответ."})
         full_history.append(final_msg)
         new_messages.append(final_msg)
@@ -1683,7 +1811,6 @@ class ChatRequest(BaseModel):
     full_autonomy: bool = False
     web_access: bool = False
     auto_code: bool = True
-    restrict_outside: bool = False
     project: str = ""
 
 
@@ -2385,7 +2512,6 @@ async def chat(req: ChatRequest):
         "full_autonomy": req.full_autonomy,
         "web_access": req.web_access,
         "auto_code": req.auto_code,
-        "restrict_outside": req.restrict_outside,
         "project": valid_project_name(req.project) or "",
     }
     return StreamingResponse(
@@ -2444,14 +2570,14 @@ def _load_project_settings(name):
             "temperature": float(data.get("temperature", 0.4)),
             "full_autonomy": bool(data.get("full_autonomy", False)),
             # ver 1 галочки не хранил осознанно (они дописывались автоматически), поэтому
-            # для старых файлов берём умолчания: «Запретить активность вне папки проекта» включена
+            # для старых файлов берём умолчания
             "web_access": bool(data.get("web_access", False)) if ver >= 2 else False,
             "auto_code": bool(data.get("auto_code", True)) if ver >= 2 else True,
-            "restrict_outside": bool(data.get("restrict_outside", True)) if ver >= 2 else True,
+            # параметр restrict_outside устарел и не используется: песочница включена всегда
         }
     except Exception:
         return {"model": "", "temperature": 0.4, "full_autonomy": False,
-                "web_access": False, "auto_code": True, "restrict_outside": True}
+                "web_access": False, "auto_code": True}
 
 
 class SettingsRequest(BaseModel):
@@ -2461,7 +2587,6 @@ class SettingsRequest(BaseModel):
     full_autonomy: bool = False
     web_access: bool = False
     auto_code: bool = True
-    restrict_outside: bool = True
 
 
 @app.post("/api/projects/settings")
@@ -2477,7 +2602,6 @@ def save_project_settings(req: SettingsRequest):
             "full_autonomy": bool(req.full_autonomy),
             "web_access": bool(req.web_access),
             "auto_code": bool(req.auto_code),
-            "restrict_outside": bool(req.restrict_outside),
         }
         with open(_settings_file(name), "w", encoding="utf-8") as f:
             json.dump(settings, f, ensure_ascii=False, indent=2)

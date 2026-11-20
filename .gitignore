@@ -5,7 +5,6 @@ workspace/
 bin/.desktop_shortcut_done
 KRAB-update.zip
 KRAB-*-windows-x64.zip
-update.json
 КРАБ - Запуск.lnk
 КРАБ - Стоп.lnk
 docs/RELEASING.md
@@ -23,3 +22,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Артефакты песочницы и локальных тестов (создаются при работе/отладке)
+.mplcache/
+_sandbox_ws/
+_sandbox_*.py
+_sandbox_*.json

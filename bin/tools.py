@@ -754,14 +754,17 @@ def manage_files(action, source, destination="", confirm=False, _project=None):
 
 
 # ---------------------------------------------------------------------------
-# Проверка кода на активность вне рабочей папки (галочка «Запретить активность
-# вне папки проекта»): подозрительные строки подсвечивает интерфейс, а выполнение
-# такого кода всегда спрашивается у пользователя, даже при авто-выполнении.
+# Предпроверка кода на выход за пределы рабочей папки: подозрительные строки
+# подсвечивает интерфейс. Выполнение кода спрашивается у пользователя только
+# при выключенном авто-режиме; фактическое ограничение обеспечивает песочница
+# (bin/sandbox_guard.py) — она работает всегда, независимо от галочек.
 # ---------------------------------------------------------------------------
 
 _SUSPECT_PATTERNS = [
     (re.compile(r"(?<!\w)[A-Za-z]:[\\/]"), "абсолютный путь Windows с буквой диска"),
-    (re.compile(r"[\\]{2}"), "сетевой путь \\\\сервер\\..."),
+    # UNC-путь: \\сервер\... — два слэша только В НАЧАЛЕ пути (после кавычки/начала строки/разделителя).
+    # Не срабатывает на экранированные слэши внутри относительных путей вида "отчёты\\2024\\таб.xlsx".
+        (re.compile(r"(?:^|[\s\'\"=(,:=])\\\\[^\\/\\'\"\[)\s]"), "сетевой путь \\\\сервер\\..."),
     (re.compile(r"(?:^|[\s'\"=(,:])\.\.[\\/]"), "выход за папку через относительный путь «..»"),
     (re.compile(r"[\"']\s*\.\.\s*[\"']"), "путь «..» — выход наверх из папки"),
     (re.compile(r"[\\/]\.\.(?:[\\/]|[\"']|$)"), "выход за папку через «..»"),
@@ -811,20 +814,45 @@ def run_python_snippet(code, _project=None):
         "    except Exception:\n"
         "        pass\n"
     )
+    # Сторож-прелюдия: перехватывает файловые операции вне рабочей папки, subprocess,
+    # socket и ctypes прямо в дочернем процессе (файл bin/sandbox_guard.py).
+    workspace_dir = _workspace(_project)
+    guard_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sandbox_guard.py")
+    guarded_cmd = [sys.executable, guard_py, "-c", prelude + code]
+    # Белый список окружения: дочерний процесс НЕ наследует переменные программы
+    # (иначе os.environ отдал бы расшифрованный ключ API и пароль прокси).
+    _ENV_WHITELIST = (
+        "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP",
+        "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "COMMONPROGRAMFILES",
+        "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
+        "MPLBACKEND", "PYTHONIOENCODING", "PYTHONUTF8", "TESSERACT_CMD",
+    )
+    child_env = {k: v for k, v in os.environ.items() if k.upper() in _ENV_WHITELIST}
+    child_env.update({
+        "PYTHONNOUSERSITE": "1", "PYTHONPATH": "", "PYTHONIOENCODING": "utf-8",
+        "MPLBACKEND": "Agg",
+        "MPLCONFIGDIR": os.path.join(workspace_dir, ".mplcache"),  # кэш шрифтов matplotlib — внутри песочницы
+        "KRAB_SANDBOX_DIR": workspace_dir,
+    })
+    try:
+        os.makedirs(child_env["MPLCONFIGDIR"], exist_ok=True)
+    except Exception:
+        pass
     try:
         proc = subprocess.run(
-            [sys.executable, "-c", prelude + code],
-            cwd=_workspace(_project),
+            guarded_cmd,
+            cwd=workspace_dir,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=30,
-            env={**os.environ, "PYTHONNOUSERSITE": "1", "PYTHONPATH": "", "PYTHONIOENCODING": "utf-8", "MPLBACKEND": "Agg"},
+            env=child_env,
         )
         return _j({
             "returncode": proc.returncode,
             "stdout": _clip(proc.stdout or "(пусто)"),
             "stderr": _clip(proc.stderr or "(пусто)") if proc.stderr else "",
             "timeout_seconds": 30,
-            "cwd": _display(_workspace(_project), _project),
+            "cwd": _display(workspace_dir, _project),
+            "sandbox": True,
         })
     except subprocess.TimeoutExpired:
         return _j({"returncode": -1, "stdout": "", "stderr": "Превышен таймаут 30 секунд, процесс прерван.", "timeout_seconds": 30})
@@ -1069,10 +1097,44 @@ def read_email(filepath, _project=None):
 HTTP_GET = None  # задаёт app.py: функция (url) -> (итоговый_url, статус, content_type, bytes) с прокси/SSL программы
 
 
+_PRIVATE_HOST_SUFFIXES = (".local", ".localdomain", ".lan", ".internal", ".corp", ".home", ".workgroup")
+
+
 def _is_local_address(host):
-    h = (host or "").strip("[]").lower()
-    return (h in ("localhost", "0.0.0.0", "::1", "::") or h.startswith("127.") or h.startswith("169.254.")
-            or h.endswith(".localhost"))
+    """Запрещённые адреса: loopback, link-local, приватные диапазоны RFC1918,
+    APIPA, метаданные облаков и локальные доменные суффиксы (SSRF-защита)."""
+    h = (host or "").strip("[]").lower().rstrip(".")
+    if not h:
+        return True
+    if h in ("localhost", "0.0.0.0", "::1", "::") or h.endswith(".localhost"):
+        return True
+    for suf in _PRIVATE_HOST_SUFFIXES:
+        if h.endswith(suf):
+            return True
+    # IPv4-литералы
+    m = re.fullmatch(r"(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})", h)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        if a in (0, 10, 127) or a == 169 and b == 254:      # 0.x, 10.x, 127.x, 169.254.x
+            return True
+        if a == 172 and 16 <= b <= 31:                       # 172.16-31.x
+            return True
+        if a == 192 and b == 168:                            # 192.168.x
+            return True
+        if a == 100 and 64 <= b <= 127:                      # 100.64-127.x (CGNAT)
+            return True
+        if a == 192 and b == 0 and int(m.group(3)) == 2:     # 192.0.2.x (TEST-NET)
+            return True
+        if a == 169 and b == 254:                            # на всякий случай (дублирует выше)
+            return True
+    # IPv6-литералы: fc00::/7 (unique local), fe80::/10 (link-local), ::ffff:0:0/96 (IPv4-mapped)
+    if ":" in h:
+        low = h.lower().lstrip("[]")
+        if low.startswith(("fc", "fd", "fe8", "fe9", "fea", "feb")):
+            return True
+        if low.startswith("::ffff:"):
+            return _is_local_address(low.split(":", 2)[-1])
+    return False
 
 
 def fetch_url(url, max_chars=15000):
