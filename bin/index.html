@@ -357,6 +357,12 @@ details.reason .reason-body {
 }
 #input:focus { border-color: var(--accent); }
 #btn-send { width: auto; padding: 11px 20px; height: 46px; }
+#model-price-box {
+  font-size: 11px; line-height: 1.45; color: var(--muted); text-align: right;
+  padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: 0; min-width: 100%;   /* ширина как у кнопки: не раздуваем колонку содержимым */
+}
+#model-price-box .mp-name { color: var(--text); font-weight: 600; }
 .empty-hint { max-width: 860px; margin: 8vh auto 0; text-align: center; color: var(--muted); padding: 0 22px; }
 .empty-hint h1 { font-size: 26px; color: var(--text); font-weight: 600; }
 .empty-hint .examples { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 22px; }
@@ -457,7 +463,10 @@ details.reason .reason-body {
         </div>
         <input type="file" id="file-input" multiple style="display:none">
         <textarea id="input" rows="3" placeholder="Введите сообщение... (Enter — отправить, Shift+Enter — новая строка, Ctrl+V — вставка скриншота)"></textarea>
-        <button class="btn primary" id="btn-send">Отправить</button>
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:stretch;">
+          <div id="model-price-box" title="Тариф из каталога Selectel: вход/выход, руб. за 1 млн токенов">&nbsp;</div>
+          <button class="btn primary" id="btn-send">Отправить</button>
+        </div>
       </div>
     </div>
   </main>
@@ -1596,6 +1605,7 @@ function updateTopbar() {
     ps.innerHTML = 'Проект: <b style="color:var(--muted)">черновик</b> &middot; ';
   }
   $("model-name-label").textContent = s.model || "—";
+  if (window.krabModelPrice) window.krabModelPrice();   // подсказка с ценой модели
 }
 $("model-custom").oninput = () => {
   const s = cur();
@@ -1608,6 +1618,28 @@ $("model-custom").oninput = () => {
 $("btn-refresh-models").onclick = loadModels;
 $("model-info-link").onclick = (e) => { e.preventDefault(); openModelModal(); };
 $("modal-close").onclick = closeModelModal;
+
+/* ======================= КРАБ: цена модели над «Отправить» ======================= */
+(function () {
+  const box = $("model-price-box");
+  const fmt = (v) => {
+    const x = Math.round(parseFloat(v) * 1e7) / 10;   // руб. за токен -> за 1 млн токенов, 1 знак после запятой
+    return String(x).replace(".", ",");
+  };
+  function refresh() {
+    const m = modelInfo(cur().model);
+    if (!m) { box.innerHTML = '<span class="mp-name">Модель не выбрана</span>'; return; }
+    const name = escapeHtml(modelName(m));
+    const p = m.pricing;
+    if (p && (p.prompt != null || p.completion != null)) {
+      box.innerHTML = '<span class="mp-name">' + name + "</span><br><b>" + fmt(p.prompt || 0) + "/" + fmt(p.completion || 0) + "</b>";
+    } else {
+      box.innerHTML = '<span class="mp-name">' + name + "</span><br>—/—";
+    }
+  }
+  window.krabModelPrice = refresh;
+  refresh();
+})();
 // Закрытие по клику снаружи — только если нажатие И отпускание произошли снаружи окна:
 // перетаскивание выделения из окна наружу больше не закрывает его.
 function overlayCloseGuard(overlay, closeFn) {

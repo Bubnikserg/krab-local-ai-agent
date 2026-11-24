@@ -439,6 +439,11 @@ def record_spending(project, model, cost_in, cost_out, cost_total):
             log.exception("ошибка учёта расходов")
 
 
+# Тарифы моделей (цена за 1 млн токенов) приходят из каталога Selectel
+# вместе со списком моделей (/api/models, поле pricing) — отдельного
+# накопления/хранения не требуется.
+
+
 def _aggregate_spending(entries):
     agg = {}
     for e in entries:
